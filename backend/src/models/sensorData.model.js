@@ -4,7 +4,7 @@ const { query, transaction } = require('../config/db');
  * Sensor Data Model - Database operations for time-series accelerometer data
  */
 class SensorDataModel {
-  
+
   /**
    * Insert a single sensor data point
    * @param {Object} data - Sensor data
@@ -51,11 +51,11 @@ class SensorDataModel {
 
     for (const data of dataPoints) {
       const magnitude = Math.sqrt(data.x_axis ** 2 + data.y_axis ** 2 + data.z_axis ** 2);
-      
+
       placeholders.push(
         `($${paramCount}, $${paramCount + 1}, $${paramCount + 2}, $${paramCount + 3}, $${paramCount + 4}, $${paramCount + 5}, $${paramCount + 6})`
       );
-      
+
       values.push(
         data.timestamp || new Date(),
         data.node_id,
@@ -65,7 +65,7 @@ class SensorDataModel {
         magnitude,
         data.sampling_rate || 100
       );
-      
+
       paramCount += 7;
     }
 
@@ -86,19 +86,19 @@ class SensorDataModel {
    * @returns {Promise<Array>} Sensor data points
    */
   static async getRecent(nodeId, options = {}) {
-    const { 
-      limit = 1000, 
+    const {
+      limit = 1000,
       minutes = 5,
       startTime = null,
-      endTime = null 
+      endTime = null
     } = options;
 
+    const params = [nodeId];
     let sql = `
       SELECT time, x_axis, y_axis, z_axis, magnitude, sampling_rate 
       FROM sensor_data 
       WHERE node_id = $1
     `;
-    const params = [nodeId];
 
     if (startTime && endTime) {
       params.push(startTime, endTime);
@@ -107,8 +107,10 @@ class SensorDataModel {
       sql += ` AND time > NOW() - INTERVAL '${minutes} minutes'`;
     }
 
-    sql += ` ORDER BY time DESC LIMIT $${params.length + 1}`;
+    // Add limit parameter - calculate index after all other params are added
+    const limitParamIndex = params.length + 1;
     params.push(limit);
+    sql += ` ORDER BY time DESC LIMIT $${limitParamIndex}`;
 
     const result = await query(sql, params);
     return result.rows;

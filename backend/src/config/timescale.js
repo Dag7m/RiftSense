@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+// Load environment variables before requiring db.js
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const { query, transaction } = require('./db');
 const logger = require('../utils/logger');
 
@@ -20,7 +22,7 @@ async function initializeTimescale() {
       await runMigrations();
     } else {
       logger.info('TimescaleDB extension already installed');
-      
+
       // Check if tables exist
       const tablesCheck = await query(`
         SELECT EXISTS (
@@ -47,11 +49,93 @@ async function initializeTimescale() {
 }
 
 /**
+ * Parse SQL statements, handling DO blocks and functions with $$ delimiters
+ * @param {string} sql - SQL content
+ * @returns {Array<string>} Array of SQL statements
+ */
+function parseSQLStatements(sql) {
+  const statements = [];
+  let currentStatement = '';
+  let inDollarQuote = false;
+  let dollarTag = '';
+  let i = 0;
+
+  // Remove single-line comments (but preserve them inside dollar-quoted strings)
+  // We'll handle this more carefully in the loop
+
+  while (i < sql.length) {
+    const char = sql[i];
+
+    // Check for dollar-quoted strings ($$, $tag$, etc.)
+    if (char === '$' && !inDollarQuote) {
+      // Look ahead to find the dollar tag end
+      let j = i + 1;
+      while (j < sql.length && sql[j] !== '$') {
+        j++;
+      }
+      if (j < sql.length) {
+        dollarTag = sql.substring(i, j + 1);
+        inDollarQuote = true;
+        currentStatement += dollarTag;
+        i = j + 1;
+        continue;
+      }
+    } else if (inDollarQuote && sql.substring(i, i + dollarTag.length) === dollarTag) {
+      // End of dollar-quoted string
+      currentStatement += dollarTag;
+      i += dollarTag.length;
+      inDollarQuote = false;
+      dollarTag = '';
+      continue;
+    }
+
+    // If we're in a dollar-quoted block, just add the character (including semicolons and comments)
+    if (inDollarQuote) {
+      currentStatement += char;
+      i++;
+      continue;
+    }
+
+    // Skip single-line comments when not in dollar quotes
+    if (char === '-' && sql[i + 1] === '-') {
+      // Skip to end of line
+      while (i < sql.length && sql[i] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    // Check for semicolon (statement terminator)
+    if (char === ';') {
+      currentStatement += char;
+      const trimmed = currentStatement.trim();
+      if (trimmed.length > 0 && !trimmed.match(/^\s*;?\s*$/)) {
+        statements.push(trimmed);
+      }
+      currentStatement = '';
+      i++;
+      continue;
+    }
+
+    currentStatement += char;
+    i++;
+  }
+
+  // Add any remaining statement
+  const trimmed = currentStatement.trim();
+  if (trimmed.length > 0 && !trimmed.match(/^\s*;?\s*$/)) {
+    statements.push(trimmed);
+  }
+
+  return statements.filter(s => s.trim().length > 0);
+}
+
+/**
  * Run database migrations from SQL files
  */
 async function runMigrations() {
   const migrationsDir = path.join(__dirname, '../../migrations');
-  
+
   try {
     // Check if migrations directory exists
     if (!fs.existsSync(migrationsDir)) {
@@ -72,33 +156,32 @@ async function runMigrations() {
     for (const file of files) {
       const filePath = path.join(migrationsDir, file);
       const sql = fs.readFileSync(filePath, 'utf8');
-      
+
       logger.info(`Running migration: ${file}`);
-      
-      // Split by statement and execute each
-      const statements = sql
-        .split(';')
-        .map(s => s.trim())
-        .filter(s => s.length > 0 && !s.startsWith('--'));
+
+      // Parse SQL statements properly handling DO blocks and functions
+      const statements = parseSQLStatements(sql);
 
       for (const statement of statements) {
         try {
           // Skip empty statements
-          if (!statement || statement === '') continue;
-          
+          if (!statement || statement.trim() === '') continue;
+
           await query(statement);
         } catch (error) {
           // Some statements may fail if objects already exist, that's ok
-          if (!error.message.includes('already exists') && 
-              !error.message.includes('does not exist') &&
-              !error.message.includes('duplicate key')) {
+          if (!error.message.includes('already exists') &&
+            !error.message.includes('does not exist') &&
+            !error.message.includes('duplicate key') &&
+            !error.message.includes('already a hypertable') &&
+            !error.message.includes('duplicate_object')) {
             logger.error(`Migration statement failed: ${statement.substring(0, 100)}...`);
             throw error;
           }
           logger.debug(`Skipped (already exists): ${statement.substring(0, 50)}...`);
         }
       }
-      
+
       logger.info(`Migration completed: ${file}`);
     }
 
@@ -123,7 +206,7 @@ async function verifyHypertable() {
       return true;
     } else {
       logger.warn('sensor_data is not a hypertable, attempting to convert...');
-      
+
       // Try to create hypertable
       try {
         await query(`
@@ -166,7 +249,7 @@ async function getHypertableStats() {
       FROM timescaledb_information.hypertables
       WHERE hypertable_name = 'sensor_data'
     `);
-    
+
     return result.rows[0] || null;
   } catch (error) {
     logger.error('Error getting hypertable stats:', error);
@@ -190,7 +273,7 @@ async function getChunkInfo() {
       ORDER BY range_start DESC
       LIMIT 10
     `);
-    
+
     return result.rows;
   } catch (error) {
     logger.error('Error getting chunk info:', error);
@@ -200,10 +283,8 @@ async function getChunkInfo() {
 
 // If run directly, execute migrations
 if (require.main === module) {
-  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
-  
   const { testConnection } = require('./db');
-  
+
   (async () => {
     try {
       await testConnection();

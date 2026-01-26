@@ -28,7 +28,7 @@ async function ingestData(req, res) {
 
     // Find or validate the sensor node
     const node = await SensorNodeModel.findByNodeId(node_id);
-    
+
     if (!node) {
       return res.status(404).json({
         success: false,
@@ -64,14 +64,14 @@ async function ingestData(req, res) {
     if (recentData.length >= 100) {
       const magnitudes = recentData.map(d => parseFloat(d.magnitude));
       const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
-      
+
       if (staLtaResult.triggered) {
         // Run ML prediction
         const features = mlClient.extractFeatures(recentData);
         features.sta_lta_ratio = staLtaResult.ratio;
-        
+
         const prediction = await mlClient.predict({ features });
-        
+
         // Store prediction
         const storedPrediction = await PredictionModel.create({
           node_id: node.id,
@@ -126,7 +126,7 @@ async function ingestBatchData(req, res) {
 
     // Find or validate the sensor node
     const node = await SensorNodeModel.findByNodeId(node_id);
-    
+
     if (!node) {
       return res.status(404).json({
         success: false,
@@ -171,7 +171,7 @@ async function ingestBatchData(req, res) {
       };
 
       const prediction = await mlClient.predict({ features });
-      
+
       detectionResult = {
         sta_lta_triggered: true,
         sta_lta_ratio: staLtaResult.ratio,
@@ -310,7 +310,7 @@ async function heartbeat(req, res) {
 async function getNodes(req, res) {
   try {
     const { status, limit, offset } = req.query;
-    
+
     const nodes = await SensorNodeModel.findAll({
       status,
       limit: parseInt(limit) || 100,
@@ -385,7 +385,15 @@ async function getNode(req, res) {
 async function getNodeData(req, res) {
   try {
     const { nodeId } = req.params;
-    const { minutes, limit, start, end } = req.query;
+    // Accept both 'start/end' and 'start_time/end_time' for compatibility
+    const {
+      minutes,
+      limit,
+      start,
+      end,
+      start_time,
+      end_time
+    } = req.query;
 
     let node;
     if (isValidUUID(nodeId)) {
@@ -401,14 +409,33 @@ async function getNodeData(req, res) {
       });
     }
 
+    // Use start_time/end_time if provided, otherwise use start/end
+    const startDate = start_time || start;
+    const endDate = end_time || end;
+
     let data;
-    if (start && end) {
-      data = await SensorDataModel.getTimeRange(node.id, new Date(start), new Date(end));
+    if (startDate && endDate) {
+      // Use time range query
+      data = await SensorDataModel.getTimeRange(
+        node.id,
+        new Date(startDate),
+        new Date(endDate)
+      );
     } else {
+      // Use recent data query with optional limit
       data = await SensorDataModel.getRecent(node.id, {
         minutes: parseInt(minutes) || 5,
         limit: parseInt(limit) || 1000
       });
+    }
+
+    // Calculate time range for response
+    let timeRange = null;
+    if (data.length > 0) {
+      timeRange = {
+        start: data[data.length - 1].time,
+        end: data[0].time
+      };
     }
 
     res.json({
@@ -416,7 +443,8 @@ async function getNodeData(req, res) {
       data: {
         node_id: node.node_id,
         readings: data,
-        count: data.length
+        count: data.length,
+        time_range: timeRange
       }
     });
   } catch (error) {

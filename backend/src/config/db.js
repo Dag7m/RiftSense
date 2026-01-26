@@ -7,7 +7,7 @@ const poolConfig = {
   port: parseInt(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME || 'seismic_db',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
+  password: process.env.DB_PASSWORD || 'postash',
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection not established
@@ -58,10 +58,13 @@ async function query(text, params = []) {
   try {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
-    logger.debug('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
+    // Log full query for debugging (truncate only if very long)
+    const queryText = text.length > 200 ? text.substring(0, 200) + '...' : text;
+    logger.debug('Executed query', { text: queryText, duration, rows: result.rowCount });
     return result;
   } catch (error) {
-    logger.error('Query error:', { text: text.substring(0, 100), error: error.message });
+    // Log full query on error for debugging
+    logger.error('Query error:', { text: text, params, error: error.message });
     throw error;
   }
 }
