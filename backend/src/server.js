@@ -5,6 +5,7 @@ const { pool, testConnection } = require('./config/db');
 const { initializeTimescale } = require('./config/timescale');
 const logger = require('./utils/logger');
 
+
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {

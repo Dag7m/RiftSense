@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
+
+// #swagger.tags = ['Felt']
 const feltController = require('../controllers/felt.controller');
 const { authenticate, requireAdmin, optionalAuth } = require('../middlewares/auth.middleware');
 const { validateBody, validateQuery, validateUUID } = require('../middlewares/validation.middleware');
@@ -16,13 +18,15 @@ const { feltReportSchema, feltNearbyQuerySchema } = require('../utils/validators
 // ========================================
 // Public Routes
 // ========================================
-
+    // #swagger.tags = ['Felt']
+   
 /**
  * @route   GET /api/felt/intensity-scale
  * @desc    Get Modified Mercalli Intensity Scale reference
  * @access  Public
  */
 router.get('/intensity-scale',
+      // #swagger.tags = ['Felt']
   asyncHandler(feltController.getIntensityScale)
 );
 
@@ -43,6 +47,8 @@ router.post('/',
  * @access  Public
  */
 router.get('/nearby',
+      // #swagger.tags = ['Felt']
+    // #swagger.description = 'Get all felt sensor data'
   validateQuery(feltNearbyQuerySchema),
   asyncHandler(feltController.getNearbyReports)
 );
@@ -53,6 +59,7 @@ router.get('/nearby',
  * @access  Public
  */
 router.get('/recent',
+  // #swagger.tags = ['Felt']
   asyncHandler(feltController.getRecentReports)
 );
 
@@ -62,6 +69,7 @@ router.get('/recent',
  * @access  Public
  */
 router.get('/stats',
+  // #swagger.tags = ['Felt']
   asyncHandler(feltController.getReportStats)
 );
 
@@ -71,6 +79,7 @@ router.get('/stats',
  * @access  Public
  */
 router.get('/event/:eventId',
+  // #swagger.tags = ['Felt']
   validateUUID('eventId'),
   asyncHandler(feltController.getEventReports)
 );
@@ -82,6 +91,7 @@ router.get('/event/:eventId',
  */
 router.get('/:id',
   validateUUID('id'),
+  // #swagger.tags = ['Felt']
   asyncHandler(feltController.getReport)
 );
 
@@ -95,6 +105,7 @@ router.get('/:id',
  * @access  Admin
  */
 router.delete('/:id',
+  // #swagger.tags = ['Felt']
   authenticate,
   requireAdmin,
   validateUUID('id'),

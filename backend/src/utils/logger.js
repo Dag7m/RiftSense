@@ -91,9 +91,9 @@ const logger = winston.createLogger({
 module.exports = logger;
 
 // Also export as named exports for consistency
-module.exports.error = (message, meta = {}) => logger.error(message, meta);
-module.exports.warn = (message, meta = {}) => logger.warn(message, meta);
-module.exports.info = (message, meta = {}) => logger.info(message, meta);
-module.exports.http = (message, meta = {}) => logger.http(message, meta);
-module.exports.debug = (message, meta = {}) => logger.debug(message, meta);
+// module.exports.error = (message, meta = {}) => logger.error(message, meta);
+// module.exports.warn = (message, meta = {}) => logger.warn(message, meta);
+// module.exports.info = (message, meta = {}) => logger.info(message, meta);
+// module.exports.http = (message, meta = {}) => logger.http(message, meta);
+// module.exports.debug = (message, meta = {}) => logger.debug(message, meta);
 

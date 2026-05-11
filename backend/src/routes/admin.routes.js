@@ -6,7 +6,7 @@ const { authenticate, requireAdmin } = require('../middlewares/auth.middleware')
 const { validateBody, validateUUID } = require('../middlewares/validation.middleware');
 const { asyncHandler } = require('../middlewares/error.middleware');
 const { sensorNodeCreateSchema, sensorNodeUpdateSchema, adminStatsQuerySchema } = require('../utils/validators');
-
+// #swagger.tags = ['Admin']
 /**
  * Admin Routes
  * 
@@ -26,7 +26,10 @@ router.use(requireAdmin);
  * @desc    Get admin dashboard data
  * @access  Admin
  */
+
+// #swagger.tags = ['Admin']
 router.get('/dashboard',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getDashboard)
 );
 
@@ -36,6 +39,7 @@ router.get('/dashboard',
  * @access  Admin
  */
 router.get('/stats',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getSystemStats)
 );
 
@@ -49,6 +53,7 @@ router.get('/stats',
  * @access  Admin
  */
 router.get('/nodes',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getAllNodes)
 );
 
@@ -58,6 +63,7 @@ router.get('/nodes',
  * @access  Admin
  */
 router.post('/nodes',
+  // #swagger.tags = ['Admin']
   validateBody(sensorNodeCreateSchema),
   asyncHandler(adminController.createNode)
 );
@@ -68,6 +74,7 @@ router.post('/nodes',
  * @access  Admin
  */
 router.put('/nodes/:nodeId',
+  // #swagger.tags = ['Admin']
   validateBody(sensorNodeUpdateSchema),
   asyncHandler(adminController.updateNode)
 );
@@ -78,6 +85,7 @@ router.put('/nodes/:nodeId',
  * @access  Admin
  */
 router.delete('/nodes/:nodeId',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.deactivateNode)
 );
 
@@ -91,6 +99,7 @@ router.delete('/nodes/:nodeId',
  * @access  Admin
  */
 router.get('/users',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getUsers)
 );
 
@@ -100,6 +109,7 @@ router.get('/users',
  * @access  Admin
  */
 router.put('/users/:userId',
+  // #swagger.tags = ['Admin']
   validateUUID('userId'),
   asyncHandler(adminController.updateUser)
 );
@@ -110,6 +120,7 @@ router.put('/users/:userId',
  * @access  Admin
  */
 router.delete('/users/:userId',
+  // #swagger.tags = ['Admin']
   validateUUID('userId'),
   asyncHandler(adminController.deactivateUser)
 );
@@ -124,6 +135,7 @@ router.delete('/users/:userId',
  * @access  Admin
  */
 router.get('/logs',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getAuditLogs)
 );
 
@@ -133,6 +145,7 @@ router.get('/logs',
  * @access  Admin
  */
 router.get('/logs/recent',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getRecentActivity)
 );
 
@@ -146,6 +159,7 @@ router.get('/logs/recent',
  * @access  Admin
  */
 router.get('/database',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.getDatabaseInfo)
 );
 
@@ -155,6 +169,7 @@ router.get('/database',
  * @access  Admin
  */
 router.post('/cleanup',
+  // #swagger.tags = ['Admin']
   asyncHandler(adminController.cleanupOldData)
 );
 

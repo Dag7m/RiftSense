@@ -274,6 +274,6 @@ CREATE TRIGGER update_users_updated_at
 -- Insert a default admin user (password: admin123 - change in production!)
 -- Password hash for 'admin123' using bcrypt
 INSERT INTO users (email, password_hash, name, role)
-VALUES ('admin@seismic.local', '$2b$10$rQZ9QW8E5E5E5E5E5E5E5O5E5E5E5E5E5E5E5E5E5E5E5E5E5E5E5', 'System Admin', 'admin')
+VALUES ('dag@gmail.com', '$2a$12$WBAVL2VjwjeyvksM37sswu7juorEU6Ee4SImKctZGPNrR/7V0d8za', 'System Admin', 'admin')
 ON CONFLICT (email) DO NOTHING;
 

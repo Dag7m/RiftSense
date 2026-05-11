@@ -11,6 +11,8 @@ const {
   heartbeatSchema 
 } = require('../utils/validators');
 
+
+
 /**
  * Sensor Routes
  * 
@@ -27,6 +29,7 @@ const {
  * @access  Public (sensor nodes)
  */
 router.post('/data',
+  // #swagger.tags = ['Sensors']
   sensorRateLimit,
   validateBody(sensorDataSchema),
   asyncHandler(sensorController.ingestData)
@@ -38,6 +41,7 @@ router.post('/data',
  * @access  Public (sensor nodes)
  */
 router.post('/data/batch',
+  // #swagger.tags = ['Sensors']
   sensorRateLimit,
   validateBody(sensorDataBatchSchema),
   asyncHandler(sensorController.ingestBatchData)
@@ -49,6 +53,7 @@ router.post('/data/batch',
  * @access  Public (sensor nodes)
  */
 router.post('/heartbeat',
+  // #swagger.tags = ['Sensors']
   validateBody(heartbeatSchema),
   asyncHandler(sensorController.heartbeat)
 );
@@ -63,6 +68,7 @@ router.post('/heartbeat',
  * @access  Admin
  */
 router.get('/nodes',
+  // #swagger.tags = ['Sensors']
   authenticate,
   requireAdmin,
   asyncHandler(sensorController.getNodes)
@@ -74,6 +80,7 @@ router.get('/nodes',
  * @access  Admin
  */
 router.get('/nodes/:nodeId',
+  // #swagger.tags = ['Sensors']
   authenticate,
   requireAdmin,
   asyncHandler(sensorController.getNode)
@@ -85,6 +92,7 @@ router.get('/nodes/:nodeId',
  * @access  Admin
  */
 router.get('/data/:nodeId',
+  // #swagger.tags = ['Sensors']
   authenticate,
   requireAdmin,
   asyncHandler(sensorController.getNodeData)
@@ -96,6 +104,7 @@ router.get('/data/:nodeId',
  * @access  Admin
  */
 router.get('/data/:nodeId/aggregates',
+  // #swagger.tags = ['Sensors']
   authenticate,
   requireAdmin,
   asyncHandler(sensorController.getNodeAggregates)

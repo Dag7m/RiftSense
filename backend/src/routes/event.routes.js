@@ -23,6 +23,7 @@ const { eventQuerySchema } = require('../utils/validators');
  * @access  Public
  */
 router.get('/',
+  // #swagger.tags = ['Events']
   validateQuery(eventQuerySchema),
   asyncHandler(eventController.getEvents)
 );
@@ -33,6 +34,7 @@ router.get('/',
  * @access  Public
  */
 router.get('/recent',
+  // #swagger.tags = ['Events']
   asyncHandler(eventController.getRecentEvents)
 );
 
@@ -42,6 +44,7 @@ router.get('/recent',
  * @access  Public
  */
 router.get('/nearby',
+  // #swagger.tags = ['Events']
   asyncHandler(eventController.getNearbyEvents)
 );
 
@@ -51,6 +54,7 @@ router.get('/nearby',
  * @access  Public
  */
 router.get('/stats',
+  // #swagger.tags = ['Events']
   asyncHandler(eventController.getEventStats)
 );
 
@@ -60,6 +64,7 @@ router.get('/stats',
  * @access  Public
  */
 router.get('/:id',
+  // #swagger.tags = ['Events']
   validateUUID('id'),
   asyncHandler(eventController.getEvent)
 );
@@ -70,6 +75,7 @@ router.get('/:id',
  * @access  Public
  */
 router.get('/:id/detections',
+  // #swagger.tags = ['Events']
   validateUUID('id'),
   asyncHandler(eventController.getEventDetections)
 );
@@ -84,6 +90,7 @@ router.get('/:id/detections',
  * @access  Admin
  */
 router.post('/',
+  // #swagger.tags = ['Events']
   authenticate,
   requireAdmin,
   asyncHandler(eventController.createEvent)
@@ -95,6 +102,7 @@ router.post('/',
  * @access  Admin
  */
 router.put('/:id/status',
+  // #swagger.tags = ['Events']
   authenticate,
   requireAdmin,
   validateUUID('id'),
@@ -107,6 +115,7 @@ router.put('/:id/status',
  * @access  Admin
  */
 router.delete('/:id',
+  // #swagger.tags = ['Events']
   authenticate,
   requireAdmin,
   validateUUID('id'),

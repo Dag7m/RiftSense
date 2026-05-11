@@ -7,7 +7,7 @@ const poolConfig = {
   port: parseInt(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME || 'seismic_db',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '',
+  password: process.env.DB_PASSWORD || 'poster43',
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection not established

@@ -40,6 +40,7 @@ const updateProfileSchema = Joi.object({
  * @access  Public
  */
 router.post('/register',
+  // #swagger.tags = ['Auth']
   validateBody(registerSchema),
   asyncHandler(authController.register)
 );
@@ -50,6 +51,7 @@ router.post('/register',
  * @access  Public
  */
 router.post('/login',
+  // #swagger.tags = ['Auth']
   validateBody(loginSchema),
   asyncHandler(authController.login)
 );
@@ -60,6 +62,7 @@ router.post('/login',
  * @access  Public
  */
 router.post('/refresh',
+  // #swagger.tags = ['Auth']
   validateBody(refreshTokenSchema),
   asyncHandler(authController.refreshToken)
 );
@@ -74,6 +77,7 @@ router.post('/refresh',
  * @access  Protected
  */
 router.get('/me',
+  // #swagger.tags = ['Auth']
   authenticate,
   asyncHandler(authController.getMe)
 );
@@ -84,6 +88,7 @@ router.get('/me',
  * @access  Protected
  */
 router.put('/me',
+  // #swagger.tags = ['Auth']
   authenticate,
   validateBody(updateProfileSchema),
   asyncHandler(authController.updateMe)
@@ -95,6 +100,7 @@ router.put('/me',
  * @access  Protected
  */
 router.put('/password',
+  // #swagger.tags = ['Auth']
   authenticate,
   validateBody(changePasswordSchema),
   asyncHandler(authController.changePassword)
@@ -106,6 +112,7 @@ router.put('/password',
  * @access  Protected
  */
 router.post('/logout',
+  // #swagger.tags = ['Auth']
   authenticate,
   asyncHandler(authController.logout)
 );
@@ -120,6 +127,7 @@ router.post('/logout',
  * @access  Admin
  */
 router.post('/create-admin',
+  // #swagger.tags = ['Auth']
   authenticate,
   requireAdmin,
   validateBody(registerSchema),

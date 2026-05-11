@@ -9,6 +9,8 @@ const feltRoutes = require('./routes/felt.routes');
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 
+
+
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const logger = require('./utils/logger');
 
@@ -55,6 +57,13 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+//swagger
+
+const swaggerUi = require('swagger-ui-express');
+const swaggerDocument = require('./swagger-output.json');
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // API Routes
 app.use('/api/sensors', sensorRoutes);
