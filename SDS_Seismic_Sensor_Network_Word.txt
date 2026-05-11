@@ -1,0 +1,631 @@
+SOFTWARE DESIGN SPECIFICATION (SDS) / SOFTWARE DESIGN DESCRIPTION (SDD)
+
+SEISMIC SENSOR NETWORK WITH REAL-TIME MONITORING, MACHINE LEARNING CLASSIFICATION,
+AND CROWD-SOURCED FELT REPORTS
+
+Document Control
+  Document ID: SDS-SSN-RTML-FELT
+  Related SRS: SRS_Seismic_Sensor_Network_Word.txt (SRS-SSN-RTML-FELT v1.0)
+  Design Standard Guidance: IEEE 1016 (Software Design Description) + ISO/IEC/IEEE 29148 alignment
+  Version: 1.0
+  Date: 2026-01-26
+  Status: Baseline (Thesis)
+  Audience: Thesis committee, supervisors, developers, testers
+
+Revision History
+  Version   Date         Author(s)      Description
+  -------   ----------   ------------   -------------------------------
+  0.1       2026-01-26   Project Team   Initial SDS structure
+  1.0       2026-01-26   Project Team   Consolidated baseline SDS for submission
+
+
+TABLE OF CONTENTS
+  1. Introduction
+     1.1 Purpose
+     1.2 Scope
+     1.3 Definitions, Acronyms, and Abbreviations
+     1.4 References
+     1.5 Document Overview
+  2. Design Context and Goals
+     2.1 System Context
+     2.2 Design Objectives
+     2.3 Design Constraints and Assumptions
+     2.4 Design Principles and Conventions
+  3. Architectural Design
+     3.1 High-Level Architecture
+     3.2 Logical View
+     3.3 Process / Runtime View
+     3.4 Deployment View
+     3.5 Data Flow View
+  4. Detailed Component Design
+     4.1 Sensor Node (ESP32) Design
+     4.2 Backend API Service Design
+     4.3 Database Design (PostgreSQL + TimescaleDB)
+     4.4 Machine Learning Service Design
+     4.5 Frontend (Next.js) Design
+  5. Interface Design
+     5.1 External Interfaces (Sensors <-> Backend)
+     5.2 Backend REST API Interfaces (Frontend/Admin)
+     5.3 ML Service Interfaces
+     5.4 Database Interfaces
+     5.5 UI Interfaces (Screens and Navigation)
+  6. Data Design
+     6.1 Conceptual Data Model
+     6.2 Logical Schema Overview
+     6.3 Time-Series Storage Strategy
+     6.4 Indexing and Aggregation Strategy
+     6.5 Data Retention and Cleanup
+  7. Security Design
+     7.1 Authentication
+     7.2 Authorization (RBAC)
+     7.3 Data Protection and Privacy
+     7.4 Threat Model Summary and Controls
+     7.5 Audit Logging
+  8. Reliability, Observability, and Operations
+     8.1 Error Handling Strategy
+     8.2 Logging Strategy
+     8.3 Health Checks and Monitoring
+     8.4 Rate Limiting and Abuse Protection
+     8.5 Backup and Recovery
+  9. Algorithms and Decision Logic
+     9.1 Signal Preprocessing and Magnitude
+     9.2 STA/LTA Triggering
+     9.3 ML Feature Extraction and Classification
+     9.4 Event Correlation and Confidence Aggregation
+  10. Design for Non-Functional Requirements
+     10.1 Performance
+     10.2 Scalability
+     10.3 Availability and Fault Tolerance
+     10.4 Maintainability and Extensibility
+     10.5 Usability and Accessibility
+  11. Testability and Verification Approach
+     11.1 Design for Testing
+     11.2 Test Environments
+     11.3 Traceability to Requirements
+  12. Diagrams and Placeholders (To Insert in Word)
+  13. Appendices
+     13.1 Traceability Matrix (SRS -> Design)
+     13.2 Glossary (Expanded)
+     13.3 Open Issues and Future Enhancements
+
+
+1. INTRODUCTION
+
+1.1 Purpose
+This Software Design Specification (SDS) describes the design solution for the thesis project
+“Seismic Sensor Network with Real-Time Monitoring, Machine Learning Classification, and Crowd-Sourced
+Felt Reports.” It translates SRS requirements into an implementable design, describing architecture,
+components, interfaces, data design, security, operational aspects, and design rationale.
+
+1.2 Scope
+The SDS covers the entire system end-to-end:
+  - ESP32 sensor nodes and accelerometer sampling/transmission design
+  - Backend service for ingestion, storage, analytics orchestration, and RBAC APIs
+  - PostgreSQL + TimescaleDB schema and time-series handling
+  - ML service integration for signal classification
+  - Next.js frontend for monitoring, visualization, and felt reports
+
+1.3 Definitions, Acronyms, and Abbreviations
+  ESP32: Microcontroller platform used for sensor nodes
+  TimescaleDB: PostgreSQL extension for time-series
+  Hypertable: TimescaleDB time-partitioned table abstraction
+  STA/LTA: Short-term average / long-term average triggering method
+  ML: Machine Learning
+  JWT: JSON Web Token
+  RBAC: Role-Based Access Control
+
+1.4 References
+  - SRS_Seismic_Sensor_Network_Word.txt (SRS-SSN-RTML-FELT v1.0)
+  - IEEE 1016 (Software Design Description) guidelines
+  - PostgreSQL and TimescaleDB documentation
+
+1.5 Document Overview
+Sections 2–3 define design context and system architecture. Sections 4–6 provide detailed component
+and data design. Sections 7–10 cover cross-cutting concerns such as security, reliability, algorithms,
+and NFR-driven design. Sections 11–13 address testability, diagram placeholders for Word insertion,
+traceability, and appendices.
+
+
+2. DESIGN CONTEXT AND GOALS
+
+2.1 System Context
+The system collects seismic motion data from distributed sensor nodes, stores it as time-series data,
+classifies signals using ML, correlates detections into events, and displays monitoring dashboards.
+Crowd-sourced “Felt It” reports provide public feedback to complement sensor detections.
+
+PLACEHOLDER (Figure 2-1): System Context Diagram
+  Insert: A context diagram showing actors (Sensor Nodes, Users, Admins, ML Service) and the system boundary.
+
+2.2 Design Objectives
+  DO-1: Provide reliable real-time ingestion and persistence of sensor data.
+  DO-2: Support scalable time-series queries (recent windows and historical ranges).
+  DO-3: Enable event detection via heuristics and ML classification, with traceable outputs.
+  DO-4: Provide secure, role-based APIs and admin control features.
+  DO-5: Provide intuitive monitoring UI and simple felt-report submission for public users.
+  DO-6: Ensure the design is academically verifiable and deployable in a reproducible environment.
+
+2.3 Design Constraints and Assumptions
+  - PostgreSQL + TimescaleDB is mandatory for time-series storage.
+  - Sensor nodes may experience intermittent connectivity; batch submission is supported.
+  - ML service may be external; backend must handle ML unavailability gracefully.
+  - HTTPS is required for production; HTTP is acceptable for local development.
+
+2.4 Design Principles and Conventions
+  - Separation of concerns: ingestion, auth, admin, events, felt reports, ML integration.
+  - Stateless backend API processes; persistence in DB.
+  - Consistent API envelope format: success/data or success/error.
+  - Secure-by-default: input validation, parameterized queries, least privilege.
+  - Observability: structured logs, health checks, audit logs for admin actions.
+
+
+3. ARCHITECTURAL DESIGN
+
+3.1 High-Level Architecture
+The architecture is a distributed, service-oriented system composed of:
+  - Sensor Node Fleet (ESP32) sending data and heartbeats
+  - Backend API Service (Node/Express)
+  - Database (PostgreSQL + TimescaleDB)
+  - ML Service (classification)
+  - Web Frontend (Next.js)
+
+PLACEHOLDER (Figure 3-1): High-Level Architecture Diagram
+  Insert: Block diagram showing components and communication links (HTTP/HTTPS, DB connection).
+
+3.2 Logical View (Subsystem Decomposition)
+Logical subsystems:
+  L-1 Sensor Ingestion Subsystem: validates payloads, stores sensor_data, updates node activity.
+  L-2 Node Management Subsystem: CRUD for nodes, heartbeat updates, admin control.
+  L-3 Event Subsystem: detection correlation, event records, event retrieval and management.
+  L-4 ML Integration Subsystem: feature extraction, ML request/response, prediction storage.
+  L-5 Felt Reporting Subsystem: submit/retrieve/aggregate felt reports.
+  L-6 Auth/RBAC Subsystem: registration, login, token refresh, authorization enforcement.
+  L-7 Admin Subsystem: dashboard, logs, database info, cleanup operations.
+
+PLACEHOLDER (Figure 3-2): Logical Architecture Diagram (Layered)
+  Insert: Diagram showing API layer modules and DB tables/relationships at a high level.
+
+3.3 Process / Runtime View
+Runtime processes (typical deployment):
+  - Backend API process (one or more instances)
+  - Database process (TimescaleDB/PostgreSQL)
+  - ML service process (optional separate container/service)
+  - Frontend web process (Next.js server or static + CDN)
+
+PLACEHOLDER (Figure 3-3): Runtime/Sequence Diagram (Ingestion)
+  Insert: Sequence diagram for “Sensor Node submits data -> backend stores -> optional ML -> event/alert.”
+
+3.4 Deployment View
+Recommended deployments:
+  - Development: Docker for DB; backend and frontend on localhost.
+  - Production: Managed database or dedicated DB host; backend behind reverse proxy; frontend hosted on web server/CDN.
+
+PLACEHOLDER (Figure 3-4): Deployment Diagram
+  Insert: Diagram showing nodes in the field, internet, backend server, DB server, ML service, and users.
+
+3.5 Data Flow View
+Primary flows:
+  DF-1: Sensor sample -> backend -> DB (sensor_data hypertable)
+  DF-2: Heartbeat -> backend -> DB (sensor_nodes status/heartbeat)
+  DF-3: Detection -> ML -> prediction -> DB (predictions table)
+  DF-4: Event correlation -> DB (events/event_detections)
+  DF-5: Frontend queries -> backend -> DB -> frontend visualizations
+  DF-6: Felt report -> backend -> DB -> dashboard statistics
+
+PLACEHOLDER (Figure 3-5): Data Flow Diagram (Level 0/1)
+  Insert: DFD showing major processes and data stores (sensor_data, events, users, felt_reports).
+
+
+4. DETAILED COMPONENT DESIGN
+
+4.1 Sensor Node (ESP32) Design
+
+4.1.1 Responsibilities
+  - Sample accelerometer at configured sampling rate.
+  - Compute basic local metrics if required (optional).
+  - Transmit samples (single or batch) to backend.
+  - Send periodic heartbeats including status, battery (if available), firmware version.
+
+4.1.2 Node Modules (Recommended)
+  - SensorDriver: hardware I2C/SPI access and calibration.
+  - SamplingScheduler: timer-driven sample collection and buffering.
+  - BufferManager: ring buffer for samples; batch packaging.
+  - NetworkClient: Wi‑Fi connection management and HTTP client.
+  - HeartbeatManager: periodic status reporting.
+  - ConfigManager: stores node_id and backend URL; supports OTA config update (optional).
+
+4.1.3 Data Transmission Strategy
+  - Single-sample POST for low latency (optional).
+  - Batch POST for efficiency and robustness under intermittent connectivity.
+  - Retry with exponential backoff on network failures.
+  - Timestamping: node-generated timestamps preferred; fallback to server-assigned timestamps.
+
+PLACEHOLDER (Figure 4-1): ESP32 Firmware Module Diagram
+  Insert: Component diagram of firmware modules and data flow.
+
+4.2 Backend API Service Design
+
+4.2.1 Technology and Structure
+  - RESTful API implemented with Node.js/Express.
+  - Layering recommendation:
+      Controllers: request/response handling
+      Services: business logic (detection, ML orchestration)
+      Models/Repositories: database access
+      Middlewares: auth, validation, rate limiting, error handling
+
+4.2.2 Core Backend Modules
+  - Auth Module: user register/login/refresh/logout, password change, profile.
+  - Sensor Module: ingest data (single/batch), heartbeat, node data retrieval, aggregates.
+  - Event Module: event listing, nearby search, stats, detail, detections, admin updates.
+  - Felt Module: submit report, recent/nearby/stats, intensity scale reference.
+  - Admin Module: dashboard, system stats, node CRUD, user management, audit logs, DB info, cleanup.
+  - Timescale Initialization: migrations, extension verification, hypertable verification.
+
+4.2.3 Cross-Cutting Middlewares
+  - Validation middleware: schema-based validation for bodies/queries.
+  - Auth middleware: JWT verification, optional auth, admin enforcement.
+  - Rate limiting: global and sensor-specific limits.
+  - Error middleware: centralized error response, consistent envelope.
+  - Logging middleware: request logging with timestamp and metadata.
+
+PLACEHOLDER (Figure 4-2): Backend Module Diagram
+  Insert: Diagram of backend modules and their dependencies (controllers -> services -> models -> DB).
+
+4.3 Database Design (PostgreSQL + TimescaleDB)
+
+4.3.1 Database Responsibilities
+  - Persist all system data reliably.
+  - Support time-series operations (hypertables, chunking, aggregates).
+  - Provide efficient indexing for common query patterns.
+
+4.3.2 Key Tables (High-Level)
+  - sensor_nodes(node_id, location, status, last_heartbeat, firmware, battery, timestamps)
+  - sensor_data(time, node_id, x_axis, y_axis, z_axis, magnitude, sampling_rate) [hypertable]
+  - events(id, event_type, confidence, magnitude_estimate, location, detected_at, status, description)
+  - event_detections(id, event_id, node_id, detection_time, peak_acceleration, sta_lta_ratio, distance, arrivals)
+  - users(id, email, password_hash, role, is_active, last_login, timestamps)
+  - felt_reports(id, user_id, event_id, location, intensity, description, reported_at, metadata)
+  - predictions(id, node_id, segment_start/end, prediction, confidence, features, model_version)
+  - admin_logs(id, admin_id, action, resource_type/id, details, ip_address, created_at)
+
+PLACEHOLDER (Figure 4-3): ER Diagram / Database Schema Diagram
+  Insert: ERD showing entities and relationships; include keys and major attributes.
+
+4.4 Machine Learning Service Design
+
+4.4.1 Responsibilities
+  - Accept feature vectors (and optional waveform segments) from backend.
+  - Return prediction label (earthquake/noise/unknown) and confidence score.
+  - Provide model version metadata and optionally processing time.
+
+4.4.2 ML Service Endpoints (Recommended)
+  - POST /predict: input features -> output prediction + confidence + version
+  - POST /batch_predict (optional): multiple segments for offline evaluation
+  - GET /health: liveness check
+
+4.4.3 Failure Handling
+  - Backend must treat ML failures as non-fatal; proceed with heuristic-only decision path if required.
+  - Store ML errors in logs; optionally store “ML unavailable” flags with detections.
+
+PLACEHOLDER (Figure 4-4): ML Workflow Diagram
+  Insert: Diagram showing feature extraction, model inference, result storage, and event update.
+
+4.5 Frontend (Next.js) Design
+
+4.5.1 Responsibilities
+  - Display real-time monitoring dashboards and node status.
+  - Visualize historical sensor data and aggregates.
+  - Display events and alerts; enable filtering and drill-down.
+  - Provide felt-report submission UI for anonymous and logged-in users.
+  - Provide admin pages for management (admin-only).
+
+4.5.2 UI Modules (Recommended)
+  - DashboardPage: summary cards, charts, alerts feed.
+  - NodesPage: node list, status indicators, map overlay.
+  - NodeDetailPage: waveform chart, aggregates, metadata, recent readings.
+  - EventsPage: event list, filters, nearby search map.
+  - EventDetailPage: detections list, map, confidence trend.
+  - FeltReportPage: form + intensity guidance; recent reports map/list.
+  - AuthPages: register/login/profile.
+  - AdminPages: nodes CRUD, users, logs, database info.
+
+PLACEHOLDER (Figure 4-5): UI Sitemap / Navigation Map
+  Insert: Diagram showing navigation links between pages.
+
+
+5. INTERFACE DESIGN
+
+5.1 External Interfaces (Sensors <-> Backend)
+
+5.1.1 Sensor Data Ingestion Interface
+  Protocol: HTTP/HTTPS
+  Format: JSON (UTF‑8)
+  Endpoints (informative): /api/sensors/data, /api/sensors/data/batch
+  Validation: required fields; numeric ranges; timestamp ISO 8601.
+  Rate limiting: applied to prevent abuse.
+
+5.1.2 Heartbeat Interface
+  Endpoint (informative): /api/sensors/heartbeat
+  Payload: node_id + optional status + optional battery + optional firmware.
+
+PLACEHOLDER (Figure 5-1): Sensor Payload Examples Table
+  Insert: Table showing request/response JSON examples for data and heartbeat.
+
+5.2 Backend REST API Interfaces (Frontend/Admin)
+
+5.2.1 API Envelope Convention
+  Success:
+    success: true
+    data: { ... }
+  Failure:
+    success: false
+    error: "message"
+    (optional) details: { ... }
+
+5.2.2 Key API Groups (informative)
+  - Auth: register/login/refresh/logout/me/password
+  - Sensors: admin nodes list/detail; node data; aggregates
+  - Events: list/recent/nearby/stats/detail/detections; admin create/update/delete
+  - Felt: submit/intensity-scale/nearby/recent/stats/event reports; admin delete
+  - Admin: dashboard/stats/users/logs/database/cleanup
+
+PLACEHOLDER (Figure 5-2): API Endpoint Catalog
+  Insert: Table with columns: Method, Endpoint, Auth, Request, Response, Errors.
+
+5.3 ML Service Interfaces
+  Protocol: HTTP/HTTPS
+  Endpoint: /predict
+  Request: features + metadata
+  Response: prediction label + confidence + model_version + processing_time_ms (optional)
+
+PLACEHOLDER (Figure 5-3): ML API Contract
+  Insert: JSON schema or table describing request/response fields and constraints.
+
+5.4 Database Interfaces
+  - Backend uses parameterized queries via a DB client library.
+  - Connection settings via environment variables (host, port, db, user, password).
+  - TimescaleDB operations: hypertable creation, continuous aggregates, policies.
+
+5.5 UI Interfaces (Screens and Navigation)
+Include, per major screen:
+  - Purpose
+  - Primary user actions
+  - Data shown (API calls)
+  - Validation rules (for forms)
+  - Error/empty states
+
+PLACEHOLDER (Figure 5-4): Wireframes / Screenshots
+  Insert: Wireframes for dashboard, node detail waveform, event list/detail, felt report form, admin pages.
+
+
+6. DATA DESIGN
+
+6.1 Conceptual Data Model
+Key relationships:
+  - sensor_nodes 1..* sensor_data
+  - events 1..* event_detections
+  - users 1..* felt_reports (optional)
+  - events 0..* felt_reports (optional linkage)
+  - sensor_nodes 1..* predictions
+
+PLACEHOLDER (Figure 6-1): Conceptual Data Model Diagram
+  Insert: High-level ER diagram (entities + relationships).
+
+6.2 Logical Schema Overview
+The logical schema mirrors the conceptual model and includes constraints such as:
+  - Unique node_id for sensor_nodes
+  - Primary key (time, node_id) for sensor_data
+  - Foreign keys to enforce referential integrity
+
+6.3 Time-Series Storage Strategy
+  - sensor_data is a TimescaleDB hypertable partitioned by time.
+  - Chunk interval chosen based on expected data rate (default: 1 day).
+  - Continuous aggregates for hourly summaries.
+
+6.4 Indexing and Aggregation Strategy
+Indexing principles:
+  - Index by node_id for fast per-node queries.
+  - Index by time for recent-window scans (Timescale helps via chunk pruning).
+  - Additional indexes for event queries (detected_at, status, type).
+Aggregates:
+  - Hourly continuous aggregate view per node (avg/max/min magnitude, count).
+
+6.5 Data Retention and Cleanup
+  - Raw sensor_data retention via a cleanup job or admin-triggered operation.
+  - Events and felt_reports retained longer for analysis and thesis evaluation.
+  - Backup strategy described in Section 8.5.
+
+
+7. SECURITY DESIGN
+
+7.1 Authentication
+  - JWT-based access tokens for API authentication.
+  - Refresh tokens for session continuity.
+  - Password hashing via a strong one-way hash (bcrypt or equivalent).
+
+7.2 Authorization (RBAC)
+Roles:
+  - Anonymous: public endpoints + felt report submission (optional auth)
+  - User: authenticated endpoints for profile and user features
+  - Admin: privileged endpoints for node management, logs, cleanup, event moderation
+
+PLACEHOLDER (Figure 7-1): RBAC Matrix
+  Insert: Table mapping roles to endpoint groups and permissions.
+
+7.3 Data Protection and Privacy
+  - TLS (HTTPS) in production to protect tokens and data in transit.
+  - PII minimization: felt reports may store minimal identifying data; IP/user agent only as needed for abuse prevention.
+  - Principle of least privilege for DB user accounts (if deployed beyond local development).
+
+7.4 Threat Model Summary and Controls
+Threats and mitigations:
+  - Injection (SQL/NoSQL): parameterized queries + input validation.
+  - Credential stuffing: rate limiting + password policy.
+  - Token theft: HTTPS + token expiration + refresh rotation (recommended).
+  - Abuse of public endpoints: rate limiting and validation.
+  - Tampering with admin actions: audit logs + admin-only access.
+
+PLACEHOLDER (Figure 7-2): Threat Model Diagram (Optional)
+  Insert: Simple STRIDE-style table or diagram.
+
+7.5 Audit Logging
+  - Admin actions stored in admin_logs with metadata.
+  - Logs are queryable by admins for accountability.
+
+
+8. RELIABILITY, OBSERVABILITY, AND OPERATIONS
+
+8.1 Error Handling Strategy
+  - Use consistent error response format with HTTP status codes.
+  - Distinguish validation errors (4xx) from server errors (5xx).
+  - Avoid leaking sensitive data in error messages.
+  - Graceful degradation: ML failures do not crash ingestion pipeline.
+
+8.2 Logging Strategy
+  - Request logs: method, path, timestamp, request metadata.
+  - Application logs: key events (node heartbeat, ingestion success/failure, detection triggers).
+  - Error logs: stack traces (server-side), correlation IDs if implemented.
+
+8.3 Health Checks and Monitoring
+  - /health endpoint for server liveness.
+  - Database readiness check at startup.
+  - (Optional) /metrics endpoint for Prometheus-style monitoring in future enhancement.
+
+8.4 Rate Limiting and Abuse Protection
+  - Global API rate limits for public endpoints.
+  - Additional limits for sensor ingestion endpoints.
+  - Optional IP-based throttling for felt reports.
+
+8.5 Backup and Recovery
+  - Development: Docker volume backup procedures.
+  - Production: Scheduled database backups (logical dumps or physical backups).
+  - Recovery plan: restore DB, re-run migrations, validate hypertables/aggregates.
+
+PLACEHOLDER (Figure 8-1): Backup and Recovery Workflow
+  Insert: Diagram or step flow for backup/restore procedures.
+
+
+9. ALGORITHMS AND DECISION LOGIC
+
+9.1 Signal Preprocessing and Magnitude
+  - Magnitude computed as sqrt(x^2 + y^2 + z^2) (stored per sample).
+  - Optional filtering (future): moving average, high-pass filter, calibration offsets.
+
+9.2 STA/LTA Triggering
+  - Compute STA/LTA ratio over a recent window of magnitudes.
+  - Trigger event detection if ratio exceeds threshold.
+  - Parameters: STA window length, LTA window length, trigger threshold.
+
+PLACEHOLDER (Figure 9-1): STA/LTA Illustration
+  Insert: Diagram showing STA and LTA windows over a sample waveform/magnitude series.
+
+9.3 ML Feature Extraction and Classification
+  - Feature extraction from recent window (e.g., max magnitude, variance, spectral features).
+  - ML service returns prediction label and confidence.
+  - Store prediction with features and segment timestamps.
+
+9.4 Event Correlation and Confidence Aggregation
+  - Correlate detections across nodes by:
+      - time proximity (within a configured window)
+      - spatial proximity (within a configured radius)
+  - Aggregate confidence:
+      - simple averaging or weighted method (future enhancement)
+  - Update event status: pending -> confirmed/false_positive via admin or rules.
+
+PLACEHOLDER (Figure 9-2): Event Correlation Diagram
+  Insert: Diagram demonstrating multi-node detections merging into a single event.
+
+
+10. DESIGN FOR NON-FUNCTIONAL REQUIREMENTS
+
+10.1 Performance
+  - Use Timescale hypertables and chunk pruning for efficient time-range queries.
+  - Use continuous aggregates for dashboards.
+  - Apply indexing strategy to reduce query costs.
+  - Limit response payload sizes with pagination and limits.
+
+10.2 Scalability
+  - Stateless backend enables horizontal scaling.
+  - DB scaling via tuning, partitioning (Timescale), and caching (optional future).
+  - Batch ingestion reduces request overhead at high sensor counts.
+
+10.3 Availability and Fault Tolerance
+  - Retry DB connection at startup; fail fast if DB down.
+  - Sensor nodes buffer data locally during outages; submit later as batches.
+  - ML outages do not stop ingestion (fallback to heuristic-only).
+
+10.4 Maintainability and Extensibility
+  - Modularize backend by feature (auth/sensors/events/felt/admin).
+  - Use configuration via environment variables.
+  - Maintain clear API contracts and validation schemas.
+
+10.5 Usability and Accessibility
+  - Provide clear dashboards, consistent navigation, and simple felt-report submission.
+  - Provide intensity scale guidance and form validation feedback.
+  - Provide accessible color and typography choices (WCAG-aligned where feasible).
+
+
+11. TESTABILITY AND VERIFICATION APPROACH
+
+11.1 Design for Testing
+  - API endpoints designed for deterministic responses and clear error codes.
+  - Separate concerns so controllers can be tested with mocked services.
+  - Database migrations and seed data support repeatable test environments.
+
+11.2 Test Environments
+  - Local development: Docker TimescaleDB + backend + Postman tests.
+  - Staging (optional): hosted backend with sample sensor simulator.
+
+11.3 Traceability to Requirements
+  - Map SRS requirements (FR/NFR) to design modules and test cases.
+  - See Appendix 13.1 for traceability matrix template.
+
+
+12. DIAGRAMS AND PLACEHOLDERS (TO INSERT IN WORD)
+
+NOTE: Replace each placeholder with a pasted diagram image or a Word “Insert > Shapes” diagram.
+
+Required (recommended for thesis submission):
+  - Figure 2-1: System Context Diagram
+  - Figure 3-1: High-Level Architecture Diagram
+  - Figure 3-3: Ingestion Sequence Diagram
+  - Figure 3-4: Deployment Diagram
+  - Figure 4-3: Database ERD
+  - Figure 5-4: UI Wireframes/Screenshots
+  - Figure 7-1: RBAC Matrix
+  - Figure 9-1: STA/LTA Illustration
+
+Optional (high value):
+  - Data Flow Diagram (DFD)
+  - Component diagram per backend module
+  - Activity diagram for admin workflows
+  - Sequence diagram for felt report submission and moderation
+
+
+13. APPENDICES
+
+13.1 Traceability Matrix (SRS -> Design) (Template)
+Use this table in Word and complete for your submission:
+  SRS Requirement   Design Component/Module           Verification (Test/Inspection)
+  --------------    ------------------------------    ------------------------------
+  FR-1..FR-10       Sensor Ingestion + DB Model       Postman tests + DB inspection
+  FR-11..FR-16      Node Mgmt + Admin Node CRUD       Admin API tests
+  FR-17..FR-26      Event Module + Detection Logic    Synthetic triggers + API tests
+  FR-27..FR-32      ML Integration + Predictions      Integration tests with ML stub
+  FR-37..FR-43      Felt Module + UI Form             UI + API tests
+  FR-44..FR-51      Auth/RBAC Module                  Auth tests + role checks
+  NFR-*             Cross-cutting design sections      Load/security/usability evaluation
+
+13.2 Glossary (Expanded)
+  Continuous Aggregate: Precomputed materialized view maintained by TimescaleDB for fast queries.
+  Chunk: Time-partitioned storage unit for hypertables.
+  Confidence Score: ML score (0–1) indicating prediction certainty.
+  Idempotency: Repeating the same request does not cause unintended side effects (important for ingestion).
+
+13.3 Open Issues and Future Enhancements
+  - Real-time streaming to frontend via WebSockets/SSE (future enhancement).
+  - Advanced geospatial indexing for nearby queries (PostGIS) (future enhancement).
+  - Stronger refresh token rotation and revocation list strategy.
+  - Automated retention policies using TimescaleDB built-in jobs.
+  - Sensor authentication (device keys) to prevent spoofed node_id submissions.
+
+

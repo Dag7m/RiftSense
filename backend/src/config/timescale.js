@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+// Load environment variables before requiring db.js
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const { query, transaction } = require('./db');
 const logger = require('../utils/logger');
 
@@ -46,11 +48,11 @@ async function initializeTimescale() {
   }
 }
 
-// /
-//  * Parse SQL statements, handling DO blocks and functions with $$ delimiters
-//  * @param {string} sql - SQL content
-//  * @returns {Array<string>} Array of SQL statements
-//  */
+/**
+ * Parse SQL statements, handling DO blocks and functions with $$ delimiters
+ * @param {string} sql - SQL content
+ * @returns {Array<string>} Array of SQL statements
+ */
 function parseSQLStatements(sql) {
   const statements = [];
   let currentStatement = '';
@@ -128,9 +130,9 @@ function parseSQLStatements(sql) {
   return statements.filter(s => s.trim().length > 0);
 }
 
-// /
-//  * Run database migrations from SQL files
-//  */
+/**
+ * Run database migrations from SQL files
+ */
 async function runMigrations() {
   const migrationsDir = path.join(__dirname, '../../migrations');
 
@@ -281,8 +283,6 @@ async function getChunkInfo() {
 
 // If run directly, execute migrations
 if (require.main === module) {
-  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
-
   const { testConnection } = require('./db');
 
   (async () => {

@@ -58,10 +58,13 @@ async function query(text, params = []) {
   try {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
-    logger.debug('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
+    // Log full query for debugging (truncate only if very long)
+    const queryText = text.length > 200 ? text.substring(0, 200) + '...' : text;
+    logger.debug('Executed query', { text: queryText, duration, rows: result.rowCount });
     return result;
   } catch (error) {
-    logger.error('Query error:', { text: text.substring(0, 100), error: error.message });
+    // Log full query on error for debugging
+    logger.error('Query error:', { text: text, params, error: error.message });
     throw error;
   }
 }

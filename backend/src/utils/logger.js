@@ -32,15 +32,13 @@ const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.colorize({ all: true }),
   winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}${
-      info.splat !== undefined ? ` ${JSON.stringify(info.splat)}` : ''
-    }${
-      Object.keys(info).filter(key => !['timestamp', 'level', 'message', 'splat'].includes(key)).length > 0
+    (info) => `${info.timestamp} ${info.level}: ${info.message}${info.splat !== undefined ? ` ${JSON.stringify(info.splat)}` : ''
+      }${Object.keys(info).filter(key => !['timestamp', 'level', 'message', 'splat'].includes(key)).length > 0
         ? ` ${JSON.stringify(Object.fromEntries(
-            Object.entries(info).filter(([key]) => !['timestamp', 'level', 'message', 'splat'].includes(key))
-          ))}`
+          Object.entries(info).filter(([key]) => !['timestamp', 'level', 'message', 'splat'].includes(key))
+        ))}`
         : ''
-    }`
+      }`
   )
 );
 
@@ -87,13 +85,6 @@ const logger = winston.createLogger({
   transports
 });
 
-// Export logger with convenience methods
+// Export logger
 module.exports = logger;
-
-// Also export as named exports for consistency
-// module.exports.error = (message, meta = {}) => logger.error(message, meta);
-// module.exports.warn = (message, meta = {}) => logger.warn(message, meta);
-// module.exports.info = (message, meta = {}) => logger.info(message, meta);
-// module.exports.http = (message, meta = {}) => logger.http(message, meta);
-// module.exports.debug = (message, meta = {}) => logger.debug(message, meta);
 
