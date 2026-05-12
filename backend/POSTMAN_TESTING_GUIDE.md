@@ -639,7 +639,7 @@ if (pm.response.code === 201) {
 
 **Request:**
 - **Method:** `GET`
-- **URL:** `{{base_url}}/api/sensors/data/{{node_id}}/aggregates?interval=1h&start_time=2024-01-15T00:00:00Z&end_time=2024-01-15T23:59:59Z`
+- **URL:**http://localhost:3000/api/sensors/data/ESP32_NODE_001/aggregates?hours=1
 - **Headers:**
   - `Authorization: Bearer {{admin_token}}`
 

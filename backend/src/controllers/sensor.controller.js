@@ -17,6 +17,10 @@ const { isValidUUID } = require('../utils/validators');
 const EVENT_CONFIDENCE_THRESHOLD = parseFloat(process.env.EVENT_CONFIDENCE_THRESHOLD) || 0.7;
 const STA_LTA_THRESHOLD = parseFloat(process.env.STA_LTA_THRESHOLD) || 3.0;
 const EVENT_TIME_WINDOW_MS = parseInt(process.env.EVENT_TIME_WINDOW_MS) || 60000;
+// Allow event creation based on STA/LTA alone (without ML requirement)
+const STA_LTA_ONLY_EVENTS = process.env.STA_LTA_ONLY_EVENTS === 'true' || false;
+// Higher STA/LTA threshold for direct event creation (more conservative)
+const STA_LTA_EVENT_THRESHOLD = parseFloat(process.env.STA_LTA_EVENT_THRESHOLD) || 4.0;
 
 /**
  * Ingest sensor data from ESP32 node
@@ -57,42 +61,64 @@ async function ingestData(req, res) {
     await SensorNodeModel.updateHeartbeat(node_id);
 
     // Get recent data for analysis
-    const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 500 });
+    const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 600 });
 
     // Perform quick STA/LTA detection if we have enough data
     let detectionResult = null;
     if (recentData.length >= 100) {
-      const magnitudes = recentData.map(d => parseFloat(d.magnitude));
+      // Reverse data to chronological order (oldest first) - query returns DESC order
+      const chronologicalData = [...recentData].reverse();
+      const magnitudes = chronologicalData.map(d => parseFloat(d.magnitude));
       const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
 
       if (staLtaResult.triggered) {
-        // Run ML prediction
-        const features = mlClient.extractFeatures(recentData);
-        features.sta_lta_ratio = staLtaResult.ratio;
+        // Run ML prediction (optional, but still runs for logging)
+        let prediction = null;
+        let shouldCreateEvent = false;
 
-        const prediction = await mlClient.predict({ features });
+        try {
+          const features = mlClient.extractFeatures(chronologicalData);
+          features.sta_lta_ratio = staLtaResult.ratio;
 
-        // Store prediction
-        const storedPrediction = await PredictionModel.create({
-          node_id: node.id,
-          data_segment_start: recentData[recentData.length - 1].time,
-          data_segment_end: recentData[0].time,
-          prediction: prediction.prediction,
-          confidence: prediction.confidence,
-          features: features,
-          processing_time_ms: prediction.processing_time_ms
-        });
+          prediction = await mlClient.predict({ features });
 
-        // If earthquake with high confidence, create or update event
-        if (prediction.prediction === 'earthquake' && prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
-          await handleEarthquakeDetection(node, recentData, prediction, staLtaResult);
+          // Store prediction
+          await PredictionModel.create({
+            node_id: node.id,
+            data_segment_start: chronologicalData[0].time,
+            data_segment_end: chronologicalData[chronologicalData.length - 1].time,
+            prediction: prediction.prediction,
+            confidence: prediction.confidence,
+            features: features,
+            processing_time_ms: prediction.processing_time_ms
+          });
+
+          // Check if ML prediction indicates earthquake
+          if (prediction.prediction === 'earthquake' && prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
+            shouldCreateEvent = true;
+          }
+        } catch (error) {
+          logger.warn('ML prediction failed, using STA/LTA only:', error.message);
+        }
+
+        // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
+        if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
+          // Use ML prediction if available, otherwise create synthetic prediction for event
+          const eventPrediction = prediction || {
+            prediction: 'earthquake',
+            confidence: Math.min(0.85, 0.5 + (staLtaResult.ratio / 10)),
+            details: { sta_lta_only: true }
+          };
+
+          await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
         }
 
         detectionResult = {
           sta_lta_triggered: true,
           sta_lta_ratio: staLtaResult.ratio,
-          prediction: prediction.prediction,
-          confidence: prediction.confidence
+          prediction: prediction?.prediction || 'pending',
+          confidence: prediction?.confidence || null,
+          event_created: shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)
         };
 
         logger.info(`Detection alert from node ${node_id}:`, detectionResult);
@@ -157,39 +183,67 @@ async function ingestBatchData(req, res) {
     // Update node heartbeat
     await SensorNodeModel.updateHeartbeat(node_id);
 
-    // Analyze batch for events
-    const magnitudes = batchData.map(d => Math.sqrt(d.x_axis ** 2 + d.y_axis ** 2 + d.z_axis ** 2));
-    const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
+    // Get recent data from database (including the batch we just inserted) for analysis
+    const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 600 });
 
+    // Analyze for events if we have enough data
     let detectionResult = null;
-    if (staLtaResult.triggered) {
-      const features = {
-        magnitude: Math.max(...magnitudes),
-        avg_magnitude: magnitudes.reduce((a, b) => a + b, 0) / magnitudes.length,
-        sta_lta_ratio: staLtaResult.ratio,
-        sample_count: magnitudes.length
-      };
+    if (recentData.length >= 100) {
+      // Reverse data to chronological order (oldest first) - query returns DESC order
+      const chronologicalData = [...recentData].reverse();
+      const magnitudes = chronologicalData.map(d => parseFloat(d.magnitude));
+      const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
 
-      const prediction = await mlClient.predict({ features });
+      if (staLtaResult.triggered) {
+        let prediction = null;
+        let shouldCreateEvent = false;
 
-      detectionResult = {
-        sta_lta_triggered: true,
-        sta_lta_ratio: staLtaResult.ratio,
-        prediction: prediction.prediction,
-        confidence: prediction.confidence
-      };
+        try {
+          const features = mlClient.extractFeatures(chronologicalData);
+          features.sta_lta_ratio = staLtaResult.ratio;
 
-      // Store prediction
-      await PredictionModel.create({
-        node_id: node.id,
-        data_segment_start: batchData[0].timestamp,
-        data_segment_end: batchData[batchData.length - 1].timestamp,
-        prediction: prediction.prediction,
-        confidence: prediction.confidence,
-        features: features
-      });
+          prediction = await mlClient.predict({ features });
 
-      logger.info(`Batch detection alert from node ${node_id}:`, detectionResult);
+          // Store prediction
+          await PredictionModel.create({
+            node_id: node.id,
+            data_segment_start: chronologicalData[0].time,
+            data_segment_end: chronologicalData[chronologicalData.length - 1].time,
+            prediction: prediction.prediction,
+            confidence: prediction.confidence,
+            features: features,
+            processing_time_ms: prediction.processing_time_ms
+          });
+
+          // Check if ML prediction indicates earthquake
+          if (prediction.prediction === 'earthquake' && prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
+            shouldCreateEvent = true;
+          }
+        } catch (error) {
+          logger.warn('ML prediction failed in batch, using STA/LTA only:', error.message);
+        }
+
+        // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
+        if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
+          const eventPrediction = prediction || {
+            prediction: 'earthquake',
+            confidence: Math.min(0.85, 0.5 + (staLtaResult.ratio / 10)),
+            details: { sta_lta_only: true }
+          };
+
+          await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
+        }
+
+        detectionResult = {
+          sta_lta_triggered: true,
+          sta_lta_ratio: staLtaResult.ratio,
+          prediction: prediction?.prediction || 'pending',
+          confidence: prediction?.confidence || null,
+          event_created: shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)
+        };
+
+        logger.info(`Batch detection alert from node ${node_id}:`, detectionResult);
+      }
     }
 
     res.status(201).json({
