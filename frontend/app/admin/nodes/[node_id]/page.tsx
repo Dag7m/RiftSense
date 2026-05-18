@@ -35,20 +35,35 @@ import {
   formatLatLng,
   relativeFromNow,
 } from "@/lib/formatters";
+import type { SensorDataPoint } from "@/lib/types";
 
 const POLL_LIMIT = 600;
 const POLL_INTERVAL = 1500;
 const WINDOW_MS = 60_000;
 
+/** Last 60s of samples relative to the newest point (works if device clock ≠ PC clock). */
+function trimToLiveWindow(points: SensorDataPoint[], windowMs: number): SensorDataPoint[] {
+  if (!points.length) return [];
+  const sorted = [...points].sort(
+    (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+  );
+  const newest = new Date(sorted[sorted.length - 1].time).getTime();
+  const cutoff = newest - windowMs;
+  return sorted.filter((p) => new Date(p.time).getTime() >= cutoff);
+}
+
 function useLiveSensorData(nodeId: string) {
   const query = useQuery({
     enabled: !!nodeId,
     queryKey: ["sensor", "live", nodeId],
-    queryFn: () =>
-      fetchSensorData(nodeId, { limit: POLL_LIMIT }).then((points) => {
-        const cutoff = Date.now() - WINDOW_MS;
-        return points.filter((p) => new Date(p.time).getTime() >= cutoff);
-      }),
+    queryFn: async () => {
+      // minutes=0: latest POLL_LIMIT rows, no server NOW() filter (ESP clock skew safe)
+      const points = await fetchSensorData(nodeId, {
+        limit: POLL_LIMIT,
+        minutes: 0,
+      });
+      return trimToLiveWindow(points, WINDOW_MS);
+    },
     refetchInterval: POLL_INTERVAL,
   });
   return query;
@@ -139,6 +154,11 @@ export default function AdminNodeDetailPage() {
             <EmptyState
               title="Could not load sensor data"
               description="Make sure the node is registered and streaming."
+            />
+          ) : (liveQuery.data ?? []).length === 0 ? (
+            <EmptyState
+              title="No samples in the last 60s"
+              description=""
             />
           ) : (
             <WaveformChart data={liveQuery.data ?? []} height={280} />

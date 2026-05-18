@@ -1,13 +1,25 @@
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
 
 import { useAuthStore } from "@/lib/auth";
+import { normalizeAuthTokens } from "@/lib/response";
+
+export {
+  normalizeAuthTokens,
+  unwrap,
+  unwrapPaginatedList,
+  unwrapUser,
+} from "@/lib/response";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000";
 
 export const api = axios.create({
   baseURL,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  },
 });
 
 api.interceptors.request.use((config) => {
@@ -34,14 +46,9 @@ async function refreshAccessToken(): Promise<string | null> {
       refreshToken,
     });
     const data = response.data?.data ?? response.data;
-    const tokens = data?.tokens ?? data;
-    const newAccess: string | undefined = tokens?.accessToken ?? tokens?.access_token;
-    const newRefresh: string =
-      tokens?.refreshToken ?? tokens?.refresh_token ?? refreshToken;
-
-    if (!newAccess) return null;
-    store.setTokens({ accessToken: newAccess, refreshToken: newRefresh });
-    return newAccess;
+    const tokens = normalizeAuthTokens(data);
+    store.setTokens(tokens);
+    return tokens.accessToken;
   } catch {
     store.clear();
     return null;
@@ -101,10 +108,3 @@ export function apiErrorMessage(error: unknown, fallback = "Request failed") {
   return fallback;
 }
 
-/** Unwrap the standard `{ success, data }` response envelope. */
-export function unwrap<T>(payload: unknown): T {
-  if (payload && typeof payload === "object" && "data" in (payload as object)) {
-    return (payload as { data: T }).data;
-  }
-  return payload as T;
-}

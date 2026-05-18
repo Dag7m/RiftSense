@@ -27,7 +27,8 @@ const refreshTokenSchema = Joi.object({
 
 // Profile update schema
 const updateProfileSchema = Joi.object({
-  name: Joi.string().min(1).max(255).optional()
+  name: Joi.string().min(1).max(255).optional(),
+  email: Joi.string().email().max(255).optional()
 }).min(1);
 
 // ========================================

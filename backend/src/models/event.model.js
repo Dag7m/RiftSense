@@ -299,9 +299,16 @@ class EventModel {
    * @returns {Promise<Array>} Nearby events
    */
   static async findNearby(latitude, longitude, radiusKm = 100, hours = 24) {
+    // pg returns DECIMAL as strings; coerce before arithmetic (avoid "37.77" + 0.45 → concat)
+    const lat = parseFloat(latitude);
+    const lon = parseFloat(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return [];
+    }
+
     // Approximate degree to km conversion (varies by latitude)
     const latDelta = radiusKm / 111;
-    const lonDelta = radiusKm / (111 * Math.cos(latitude * Math.PI / 180));
+    const lonDelta = radiusKm / (111 * Math.cos(lat * Math.PI / 180));
 
     const result = await query(
       `SELECT * FROM events 
@@ -309,8 +316,7 @@ class EventModel {
          AND longitude BETWEEN $3 AND $4
          AND detected_at > NOW() - INTERVAL '${hours} hours'
        ORDER BY detected_at DESC`,
-      [latitude - latDelta, latitude + latDelta, 
-       longitude - lonDelta, longitude + lonDelta]
+      [lat - latDelta, lat + latDelta, lon - lonDelta, lon + lonDelta]
     );
     return result.rows;
   }

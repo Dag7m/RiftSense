@@ -116,6 +116,10 @@ export default function AdminUsersPage() {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
+          ) : usersQuery.isError ? (
+            <p className="text-sm text-destructive">
+              {apiErrorMessage(usersQuery.error, "Could not load users")}
+            </p>
           ) : (usersQuery.data?.users ?? []).length === 0 ? (
             <EmptyState
               title="No users"

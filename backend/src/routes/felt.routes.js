@@ -5,6 +5,7 @@ const feltController = require('../controllers/felt.controller');
 const { authenticate, requireAdmin, optionalAuth } = require('../middlewares/auth.middleware');
 const { validateBody, validateQuery, validateUUID } = require('../middlewares/validation.middleware');
 const { asyncHandler } = require('../middlewares/error.middleware');
+const { feltReportLimiter } = require('../middlewares/rateLimit.middleware');
 const { feltReportSchema, feltNearbyQuerySchema } = require('../utils/validators');
 
 /**
@@ -32,6 +33,7 @@ router.get('/intensity-scale',
  * @access  Public (optional auth)
  */
 router.post('/',
+  feltReportLimiter,
   optionalAuth,
   validateBody(feltReportSchema),
   asyncHandler(feltController.submitReport)

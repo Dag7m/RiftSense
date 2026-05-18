@@ -4,8 +4,16 @@ const PredictionModel = require('../models/prediction.model');
 const EventModel = require('../models/event.model');
 const mlClient = require('../utils/mlClient');
 const staLta = require('../utils/staLta');
+const {
+  estimateMagnitudeFromPeak,
+  peakMagnitudeFromSegment
+} = require('../utils/magnitudeEstimate');
 const logger = require('../utils/logger');
 const { isValidUUID } = require('../utils/validators');
+
+// Default lookback for node predictions list
+const NODE_PREDICTIONS_DEFAULT_HOURS = 24;
+const NODE_PREDICTIONS_DEFAULT_LIMIT = 100;
 
 /**
  * Sensor Controller
@@ -102,6 +110,7 @@ async function ingestData(req, res) {
         }
 
         // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
+        let eventCreated = false;
         if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
           // Use ML prediction if available, otherwise create synthetic prediction for event
           const eventPrediction = prediction || {
@@ -110,7 +119,7 @@ async function ingestData(req, res) {
             details: { sta_lta_only: true }
           };
 
-          await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
+          eventCreated = await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
         }
 
         detectionResult = {
@@ -118,7 +127,7 @@ async function ingestData(req, res) {
           sta_lta_ratio: staLtaResult.ratio,
           prediction: prediction?.prediction || 'pending',
           confidence: prediction?.confidence || null,
-          event_created: shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)
+          event_created: eventCreated
         };
 
         logger.info(`Detection alert from node ${node_id}:`, detectionResult);
@@ -183,14 +192,25 @@ async function ingestBatchData(req, res) {
     // Update node heartbeat
     await SensorNodeModel.updateHeartbeat(node_id);
 
-    // Get recent data from database (including the batch we just inserted) for analysis
-    const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 600 });
+    // Analyze the batch we just received (not wall-clock "last 1 minute" from DB).
+    // Postman/file ingest often has timestamps from generate_test_data.js that are
+    // minutes old by post time; getRecent(minutes:1) would return 0 rows and skip detection.
+    const chronologicalData = batchData
+      .map((d) => ({
+        time: d.timestamp,
+        x_axis: d.x_axis,
+        y_axis: d.y_axis,
+        z_axis: d.z_axis,
+        magnitude: Math.sqrt(d.x_axis ** 2 + d.y_axis ** 2 + d.z_axis ** 2),
+        sampling_rate: d.sampling_rate
+      }))
+      .sort((a, b) => a.time.getTime() - b.time.getTime());
 
-    // Analyze for events if we have enough data
+    const minStaLtaSamples = staLta.DEFAULT_LTA_WINDOW + staLta.DEFAULT_STA_WINDOW;
+
+    // Analyze for events if we have enough data for STA/LTA (500 LTA + 50 STA samples)
     let detectionResult = null;
-    if (recentData.length >= 100) {
-      // Reverse data to chronological order (oldest first) - query returns DESC order
-      const chronologicalData = [...recentData].reverse();
+    if (chronologicalData.length >= minStaLtaSamples) {
       const magnitudes = chronologicalData.map(d => parseFloat(d.magnitude));
       const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
 
@@ -224,6 +244,7 @@ async function ingestBatchData(req, res) {
         }
 
         // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
+        let eventCreated = false;
         if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
           const eventPrediction = prediction || {
             prediction: 'earthquake',
@@ -231,7 +252,7 @@ async function ingestBatchData(req, res) {
             details: { sta_lta_only: true }
           };
 
-          await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
+          eventCreated = await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
         }
 
         detectionResult = {
@@ -239,11 +260,25 @@ async function ingestBatchData(req, res) {
           sta_lta_ratio: staLtaResult.ratio,
           prediction: prediction?.prediction || 'pending',
           confidence: prediction?.confidence || null,
-          event_created: shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)
+          event_created: eventCreated
         };
 
         logger.info(`Batch detection alert from node ${node_id}:`, detectionResult);
+      } else {
+        detectionResult = {
+          sta_lta_triggered: false,
+          sta_lta_ratio: staLtaResult.ratio,
+          message: staLtaResult.message,
+          event_created: false
+        };
       }
+    } else {
+      detectionResult = {
+        sta_lta_triggered: false,
+        sta_lta_ratio: 0,
+        message: `Insufficient data for STA/LTA (need ${minStaLtaSamples} points, got ${chronologicalData.length})`,
+        event_created: false
+      };
     }
 
     res.status(201).json({
@@ -266,11 +301,21 @@ async function ingestBatchData(req, res) {
  * Handle earthquake detection - create or update event
  */
 async function handleEarthquakeDetection(node, sensorData, prediction, staLtaResult) {
+  const peakAcceleration = peakMagnitudeFromSegment(sensorData, prediction);
+  const magnitudeEstimate = estimateMagnitudeFromPeak(peakAcceleration);
+
   try {
+    const latitude = parseFloat(node.latitude);
+    const longitude = parseFloat(node.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      logger.error('Cannot create event: sensor node missing valid latitude/longitude');
+      return false;
+    }
+
     // Check for existing recent event
     const recentEvents = await EventModel.findNearby(
-      node.latitude,
-      node.longitude,
+      latitude,
+      longitude,
       50, // 50km radius
       1   // Last hour
     );
@@ -283,13 +328,23 @@ async function handleEarthquakeDetection(node, sensorData, prediction, staLtaRes
         event_id: pendingEvent.id,
         node_id: node.id,
         detection_time: new Date(),
-        peak_acceleration: prediction.details?.input_magnitude || 0,
+        peak_acceleration: peakAcceleration,
         sta_lta_ratio: staLtaResult.ratio
       });
 
-      // Update event confidence (average of detections)
-      const newConfidence = (pendingEvent.confidence + prediction.confidence) / 2;
-      await EventModel.update(pendingEvent.id, { confidence: newConfidence });
+      // Update event confidence (average of detections) and keep strongest magnitude
+      const priorConfidence = parseFloat(pendingEvent.confidence) || 0;
+      const newConfidence = (priorConfidence + prediction.confidence) / 2;
+      const priorMagnitude = parseFloat(pendingEvent.magnitude_estimate);
+      const updatedMagnitude =
+        magnitudeEstimate != null
+          ? Math.max(Number.isFinite(priorMagnitude) ? priorMagnitude : 0, magnitudeEstimate)
+          : pendingEvent.magnitude_estimate;
+
+      await EventModel.update(pendingEvent.id, {
+        confidence: newConfidence,
+        magnitude_estimate: updatedMagnitude
+      });
 
       logger.info(`Added detection to existing event ${pendingEvent.id}`);
     } else {
@@ -297,8 +352,9 @@ async function handleEarthquakeDetection(node, sensorData, prediction, staLtaRes
       const newEvent = await EventModel.create({
         event_type: 'earthquake',
         confidence: prediction.confidence,
-        latitude: node.latitude,
-        longitude: node.longitude,
+        magnitude_estimate: magnitudeEstimate,
+        latitude,
+        longitude,
         detected_at: new Date(),
         status: 'pending'
       });
@@ -308,14 +364,17 @@ async function handleEarthquakeDetection(node, sensorData, prediction, staLtaRes
         event_id: newEvent.id,
         node_id: node.id,
         detection_time: new Date(),
-        peak_acceleration: prediction.details?.input_magnitude || 0,
+        peak_acceleration: peakAcceleration,
         sta_lta_ratio: staLtaResult.ratio
       });
 
       logger.info(`Created new earthquake event ${newEvent.id}`);
     }
+
+    return true;
   } catch (error) {
     logger.error('Error handling earthquake detection:', error);
+    return false;
   }
 }
 
@@ -476,10 +535,14 @@ async function getNodeData(req, res) {
         new Date(endDate)
       );
     } else {
-      // Use recent data query with optional limit
+      // minutes=0 → latest `limit` rows by time (no NOW() window); omit → default 5 minutes
+      const minutesParam =
+        minutes !== undefined && minutes !== ''
+          ? parseInt(minutes, 10)
+          : 5;
       data = await SensorDataModel.getRecent(node.id, {
-        minutes: parseInt(minutes) || 5,
-        limit: parseInt(limit) || 1000
+        minutes: Number.isFinite(minutesParam) ? minutesParam : 5,
+        limit: parseInt(limit, 10) || 1000
       });
     }
 
@@ -554,6 +617,55 @@ async function getNodeAggregates(req, res) {
   }
 }
 
+/**
+ * Get recent ML predictions for a node.
+ * GET /api/sensors/nodes/:nodeId/predictions
+ *
+ * Query params: hours (default 24), limit (default 100)
+ */
+async function getNodePredictions(req, res) {
+  try {
+    const { nodeId } = req.params;
+    const hours = parseInt(req.query.hours, 10) || NODE_PREDICTIONS_DEFAULT_HOURS;
+    const limit = Math.min(
+      parseInt(req.query.limit, 10) || NODE_PREDICTIONS_DEFAULT_LIMIT,
+      500
+    );
+
+    let node;
+    if (isValidUUID(nodeId)) {
+      node = await SensorNodeModel.findById(nodeId);
+    } else {
+      node = await SensorNodeModel.findByNodeId(nodeId);
+    }
+
+    if (!node) {
+      return res.status(404).json({
+        success: false,
+        error: 'Sensor node not found'
+      });
+    }
+
+    const predictions = await PredictionModel.findByNodeId(node.id, { hours, limit });
+
+    res.json({
+      success: true,
+      data: {
+        node_id: node.node_id,
+        hours,
+        count: predictions.length,
+        predictions
+      }
+    });
+  } catch (error) {
+    logger.error('Error getting node predictions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get node predictions'
+    });
+  }
+}
+
 module.exports = {
   ingestData,
   ingestBatchData,
@@ -561,6 +673,7 @@ module.exports = {
   getNodes,
   getNode,
   getNodeData,
-  getNodeAggregates
+  getNodeAggregates,
+  getNodePredictions
 };
 

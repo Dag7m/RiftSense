@@ -150,9 +150,26 @@ async function getMe(req, res) {
  */
 async function updateMe(req, res) {
   try {
-    const { name } = req.body;
+    const { name, email } = req.body;
+    const updateData = {};
 
-    const user = await UserModel.update(req.user.id, { name });
+    if (name !== undefined) {
+      updateData.name = name;
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = email.toLowerCase();
+      const existing = await UserModel.findByEmail(normalizedEmail);
+      if (existing && existing.id !== req.user.id) {
+        return res.status(409).json({
+          success: false,
+          error: 'Email is already in use'
+        });
+      }
+      updateData.email = normalizedEmail;
+    }
+
+    const user = await UserModel.update(req.user.id, updateData);
 
     if (!user) {
       return res.status(404).json({

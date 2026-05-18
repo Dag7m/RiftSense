@@ -63,6 +63,13 @@
   }
 }
 
+/* Keep Leaflet tile layers below app modals (dialogs use z-[1100]). */
+.map-shell {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
 .leaflet-container {
   background: hsl(var(--muted));
 }

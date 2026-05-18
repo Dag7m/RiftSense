@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-
 const sensorRoutes = require('./routes/sensor.routes');
 const eventRoutes = require('./routes/event.routes');
 const feltRoutes = require('./routes/felt.routes');
@@ -10,9 +8,13 @@ const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
+const { generalApiLimiter } = require('./middlewares/rateLimit.middleware');
 const logger = require('./utils/logger');
 
 const app = express();
+
+// JSON APIs should always return a body; default ETags cause 304 + empty responses in browsers.
+app.set('etag', false);
 
 // Security middlewares
 app.use(helmet());
@@ -21,18 +23,13 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: {
-    success: false,
-    error: 'Too many requests, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
+// Rate limiting (relaxed in development; see rateLimit.middleware.js)
+app.use('/api/', generalApiLimiter);
+
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
 });
-app.use('/api/', limiter);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));

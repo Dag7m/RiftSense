@@ -8,6 +8,7 @@ const AdminLogModel = require('../models/adminLog.model');
 const { getHypertableStats, getChunkInfo } = require('../config/timescale');
 const logger = require('../utils/logger');
 const { isValidUUID } = require('../utils/validators');
+const mlClient = require('../utils/mlClient');
 
 /**
  * Admin Controller
@@ -659,6 +660,99 @@ async function cleanupOldData(req, res) {
   }
 }
 
+// ========================================
+// ML Predictions
+// ========================================
+
+/**
+ * List ML predictions with pagination and optional filters.
+ * GET /api/admin/predictions
+ *
+ * Query params: page, limit, prediction, min_confidence, node_id
+ */
+async function getPredictions(req, res) {
+  try {
+    const {
+      page,
+      limit,
+      prediction,
+      min_confidence,
+      node_id
+    } = req.query;
+
+    const result = await PredictionModel.findAll({
+      page: parseInt(page, 10) || 1,
+      limit: Math.min(parseInt(limit, 10) || 50, 200),
+      prediction: prediction || null,
+      min_confidence: min_confidence ? parseFloat(min_confidence) : null,
+      node_id: node_id || null
+    });
+
+    res.json({
+      success: true,
+      data: result.predictions,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Error getting predictions:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get predictions'
+    });
+  }
+}
+
+/**
+ * Aggregate prediction stats (class counts, avg confidence, etc.).
+ * GET /api/admin/predictions/stats
+ *
+ * Query params: days (default 7)
+ */
+async function getPredictionStats(req, res) {
+  try {
+    const days = parseInt(req.query.days, 10) || 7;
+    const [overall, byModelVersion] = await Promise.all([
+      PredictionModel.getStatistics(days),
+      PredictionModel.getModelVersionStats()
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        window_days: days,
+        overall,
+        by_model_version: byModelVersion
+      }
+    });
+  } catch (error) {
+    logger.error('Error getting prediction stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get prediction statistics'
+    });
+  }
+}
+
+/**
+ * ML service / placeholder health.
+ * GET /api/admin/ml/health
+ */
+async function getMlHealth(req, res) {
+  try {
+    const health = await mlClient.healthCheck();
+    res.json({
+      success: true,
+      data: health
+    });
+  } catch (error) {
+    logger.error('Error getting ML health:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get ML health'
+    });
+  }
+}
+
 module.exports = {
   // Node management
   createNode,
@@ -681,6 +775,11 @@ module.exports = {
   
   // Database
   getDatabaseInfo,
-  cleanupOldData
+  cleanupOldData,
+
+  // ML predictions
+  getPredictions,
+  getPredictionStats,
+  getMlHealth
 };
 
