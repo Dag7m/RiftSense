@@ -1,0 +1,61 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Trained models and checkpoints (add paths you use locally)
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.onnx
+models/
+checkpoints/
+artifacts/
+saved_models/
+
+# Experiment tracking and runs
+mlruns/
+wandb/
+runs/
+outputs/
+logs/
+*.log
+
+# Datasets (ignore large raw data; commit small samples explicitly if needed)
+data/raw/
+data/processed/
+*.parquet
+*.npy
+*.npz
+
+# IDEs and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
