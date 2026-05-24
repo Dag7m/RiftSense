@@ -17,6 +17,33 @@ const patterns = {
 // Sensor Data Schemas
 // ========================================
 
+/** ISO string, Date, or Unix time (seconds if < 1e12, else ms) — typical for ESP32 `time()` */
+const sensorTimestampSchema = Joi.any()
+  .custom((value, helpers) => {
+    if (value === undefined || value === null || value === '') {
+      return value;
+    }
+    let d;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const ms = value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+      d = new Date(ms);
+    } else if (typeof value === 'string') {
+      d = new Date(value);
+    } else if (value instanceof Date) {
+      d = value;
+    } else {
+      return helpers.error('any.invalid');
+    }
+    if (Number.isNaN(d.getTime())) {
+      return helpers.error('date.base');
+    }
+    return d;
+  })
+  .messages({
+    'any.invalid': "'timestamp' must be a valid date, ISO string, or Unix epoch (seconds or ms)",
+    'date.base': "'timestamp' must be a valid date"
+  });
+
 const sensorDataSchema = Joi.object({
   node_id: Joi.string().pattern(patterns.nodeId).required()
     .messages({ 'string.pattern.base': 'Invalid node_id format' }),
@@ -24,7 +51,7 @@ const sensorDataSchema = Joi.object({
   y: Joi.number().required().min(-100).max(100),
   z: Joi.number().required().min(-100).max(100),
   sampling_rate: Joi.number().integer().min(1).max(1000).default(100),
-  timestamp: Joi.date().iso().default(() => new Date())
+  timestamp: sensorTimestampSchema.default(() => new Date())
 });
 
 const sensorDataBatchSchema = Joi.object({
@@ -34,7 +61,7 @@ const sensorDataBatchSchema = Joi.object({
       x: Joi.number().required().min(-100).max(100),
       y: Joi.number().required().min(-100).max(100),
       z: Joi.number().required().min(-100).max(100),
-      timestamp: Joi.date().iso().required()
+      timestamp: sensorTimestampSchema.required()
     })
   ).min(1).max(1000).required(),
   sampling_rate: Joi.number().integer().min(1).max(1000).default(100)

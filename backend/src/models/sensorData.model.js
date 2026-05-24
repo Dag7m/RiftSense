@@ -20,13 +20,15 @@ class SensorDataModel {
       timestamp = new Date()
     } = data;
 
-    // Calculate magnitude
-    const magnitude = Math.sqrt(x_axis ** 2 + y_axis ** 2 + z_axis ** 2);
+    // Calculate net magnitude (subtracting 1g gravity)
+    const rawMagnitude = Math.sqrt(x_axis ** 2 + y_axis ** 2 + z_axis ** 2);
+    const magnitude = Math.abs(rawMagnitude - 1.0);
 
     const result = await query(
       `INSERT INTO sensor_data 
         (time, node_id, x_axis, y_axis, z_axis, magnitude, sampling_rate)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (time, node_id) DO NOTHING
        RETURNING *`,
       [timestamp, node_id, x_axis, y_axis, z_axis, magnitude, sampling_rate]
     );
@@ -50,7 +52,8 @@ class SensorDataModel {
     let paramCount = 1;
 
     for (const data of dataPoints) {
-      const magnitude = Math.sqrt(data.x_axis ** 2 + data.y_axis ** 2 + data.z_axis ** 2);
+      const rawMagnitude = Math.sqrt(data.x_axis ** 2 + data.y_axis ** 2 + data.z_axis ** 2);
+      const magnitude = Math.abs(rawMagnitude - 1.0);
 
       placeholders.push(
         `($${paramCount}, $${paramCount + 1}, $${paramCount + 2}, $${paramCount + 3}, $${paramCount + 4}, $${paramCount + 5}, $${paramCount + 6})`
@@ -72,7 +75,8 @@ class SensorDataModel {
     const result = await query(
       `INSERT INTO sensor_data 
         (time, node_id, x_axis, y_axis, z_axis, magnitude, sampling_rate)
-       VALUES ${placeholders.join(', ')}`,
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (time, node_id) DO NOTHING`,
       values
     );
 

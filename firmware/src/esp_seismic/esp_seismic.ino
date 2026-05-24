@@ -76,75 +76,77 @@ void setup() {
 // GET TIMESTAMP
 // =====================================================
 String getTimestamp() {
-  struct tm timeinfo;
-
-  if (!getLocalTime(&timeinfo)) {
-    return "1970-01-01T00:00:00.000Z";
-  }
-
-  char timestamp[30];
-
-  strftime(timestamp, sizeof(timestamp),
-           "%Y-%m-%dT%H:%M:%S.000Z",
-           &timeinfo);
-
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  
+  time_t nowtime = tv.tv_sec;
+  struct tm *nowtm = localtime(&nowtime);
+  
+  char timestamp[32];
+  char millistr[8];
+  
+  // Format the main date/time part
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S", nowtm);
+  
+  // Add milliseconds
+  sprintf(millistr, ".%03dZ", (int)(tv.tv_usec / 1000));
+  strcat(timestamp, millistr);
+  
   return String(timestamp);
 }
 
 // =====================================================
-// SEND DATA
+// BATCH CONFIG
 // =====================================================
-void sendData(int x, int y, int z) {
+const int BATCH_SIZE = 20;
+const int SAMPLE_DELAY_MS = 100; // 10Hz sampling
 
+struct SensorReading {
+  float x;
+  float y;
+  float z;
+  String timestamp;
+};
+
+SensorReading batchBuffer[BATCH_SIZE];
+int bufferIndex = 0;
+
+// =====================================================
+// SEND BATCH DATA
+// =====================================================
+void sendBatchData() {
   if (client.connect(server, port)) {
-
-    String timestamp = getTimestamp();
-
-    String json =
-      "{"
-      "\"node_id\":\"" + String(node_id) + "\","
-      "\"x\":" + String(x) + ","
-      "\"y\":" + String(y) + ","
-      "\"z\":" + String(z) + ","
-      "\"sampling_rate\":100,"
-      "\"timestamp\":\"" + timestamp + "\""
-      "}";
+    String json = "{\"node_id\":\"" + String(node_id) + "\",\"sampling_rate\":10,\"data\":[";
+    
+    for (int i = 0; i < BATCH_SIZE; i++) {
+        json += "{";
+        json += "\"x\":" + String(batchBuffer[i].x, 4) + ",";
+        json += "\"y\":" + String(batchBuffer[i].y, 4) + ",";
+        json += "\"z\":" + String(batchBuffer[i].z, 4) + ",";
+        json += "\"timestamp\":\"" + batchBuffer[i].timestamp + "\"";
+        json += "}";
+        if (i < BATCH_SIZE - 1) json += ",";
+    }
+    
+    json += "]}";
 
     // ================= HTTP REQUEST =================
-    client.println("POST /api/sensors/data HTTP/1.1");
-
+    client.println("POST /api/sensors/data/batch HTTP/1.1");
     client.print("Host: ");
     client.println(server);
-
     client.println("Content-Type: application/json");
-
     client.print("Content-Length: ");
     client.println(json.length());
-
     client.println();
     client.println(json);
 
     // ================= SERIAL DEBUG =================
-    Serial.println("\n===== SENT JSON =====");
-    Serial.println(json);
+    Serial.println("\n===== SENT BATCH =====");
+    Serial.println("Sent " + String(BATCH_SIZE) + " samples");
 
-    // ================= SERVER RESPONSE =================
-    Serial.println("\n===== SERVER RESPONSE =====");
-
-    unsigned long timeout = millis();
-
-    while (client.connected() && millis() - timeout < 3000) {
-
-      while (client.available()) {
-        String response = client.readStringUntil('\n');
-        Serial.println(response);
-
-        timeout = millis();
-      }
-    }
-
+    // Clear buffer
+    bufferIndex = 0;
     client.stop();
-
   } else {
     Serial.println("Connection to server failed");
   }
@@ -154,39 +156,33 @@ void sendData(int x, int y, int z) {
 // LOOP
 // =====================================================
 void loop() {
-
   int16_t ax, ay, az;
 
   // Read acceleration
   mpu.getAcceleration(&ax, &ay, &az);
 
   // Scale values
-  int x = ax / 16384;
-  int y = ay / 16384;
-  int z = az / 16384;
+  float x = ax / 16384.0;
+  float y = ay / 16384.0;
+  float z = az / 16384.0;
 
-  // ================= RAW VALUES =================
-  Serial.print("Raw -> X: ");
-  Serial.print(ax);
+  // Add to buffer
+  batchBuffer[bufferIndex].x = x;
+  batchBuffer[bufferIndex].y = y;
+  batchBuffer[bufferIndex].z = z;
+  batchBuffer[bufferIndex].timestamp = getTimestamp();
+  
+  bufferIndex++;
 
-  Serial.print(" Y: ");
-  Serial.print(ay);
+  // Serial Monitor single point debug
+  Serial.print("X: "); Serial.print(x, 2);
+  Serial.print(" Y: "); Serial.print(y, 2);
+  Serial.print(" Z: "); Serial.println(z, 2);
 
-  Serial.print(" Z: ");
-  Serial.println(az);
+  // Send batch if buffer is full
+  if (bufferIndex >= BATCH_SIZE) {
+    sendBatchData();
+  }
 
-  // ================= SCALED VALUES =================
-  Serial.print("Scaled -> X: ");
-  Serial.print(x);
-
-  Serial.print(" Y: ");
-  Serial.print(y);
-
-  Serial.print(" Z: ");
-  Serial.println(z);
-
-  // Send data
-  sendData(x, y, z);
-
-  delay(2000);
+  delay(SAMPLE_DELAY_MS);
 }

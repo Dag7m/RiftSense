@@ -1,12 +1,13 @@
 require('dotenv').config();
-
+const http = require('http');
 const app = require('./app');
 const { pool, testConnection } = require('./config/db');
 const { initializeTimescale } = require('./config/timescale');
 const logger = require('./utils/logger');
-
+const socketUtil = require('./utils/socket');
 
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
 
 async function startServer() {
   try {
@@ -18,8 +19,12 @@ async function startServer() {
     await initializeTimescale();
     logger.info('TimescaleDB initialized');
 
+    // Initialize Socket.io
+    socketUtil.init(server);
+    logger.info('Socket.io initialized');
+
     // Start the server
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       logger.info(`Seismic Sensor Backend running on port ${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
     });

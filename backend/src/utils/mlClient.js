@@ -165,7 +165,7 @@ async function predict(options) {
   // If ML service is enabled and configured, call it
   if (ML_ENABLED && ML_SERVICE_URL) {
     try {
-      return await callMLService(inputFeatures);
+      return await callMLService({ sensorData, features: inputFeatures });
     } catch (error) {
       logger.warn('ML service call failed, falling back to placeholder:', error.message);
       // Fall through to placeholder
@@ -177,28 +177,41 @@ async function predict(options) {
 }
 
 /**
- * Call external ML service (for future implementation)
- * @param {Object} features - Feature vector
+ * Call external ML service
+ * @param {Object} options - Features and raw sensor data
  * @returns {Promise<Object>} Prediction from ML service
  */
-async function callMLService(features) {
-  // This would be implemented when the actual ML model is ready
-  // Example implementation:
-  /*
+async function callMLService(options) {
+  const { sensorData, features } = options;
+  
+  if (!sensorData || sensorData.length === 0) {
+    throw new Error('No sensor data available for ML prediction');
+  }
+
+  // Extract raw axis data for the ML service
+  const payload = {
+    x: sensorData.map(d => parseFloat(d.x_axis) || 0),
+    y: sensorData.map(d => parseFloat(d.y_axis) || 0),
+    z: sensorData.map(d => parseFloat(d.z_axis) || 0)
+  };
+
   const response = await fetch(`${ML_SERVICE_URL}/predict`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ features })
+    body: JSON.stringify(payload)
   });
   
   if (!response.ok) {
-    throw new Error(`ML service returned ${response.status}`);
+    throw new Error(`ML service returned ${response.status}: ${response.statusText}`);
   }
   
-  return await response.json();
-  */
+  const result = await response.json();
   
-  throw new Error('ML service not implemented - using placeholder');
+  // Add original features and sta_lta_ratio to context
+  return {
+    ...result,
+    features_context: features
+  };
 }
 
 /**
