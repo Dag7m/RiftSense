@@ -14,7 +14,7 @@ const logger = require('./logger');
 // Configuration
 const ML_ENABLED = process.env.ML_ENABLED === 'true';
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5000';
-const ML_REQUEST_TIMEOUT_MS = parseInt(process.env.ML_REQUEST_TIMEOUT_MS, 10) || 500;
+const ML_REQUEST_TIMEOUT_MS = parseInt(process.env.ML_REQUEST_TIMEOUT_MS, 10) || 3000;
 
 // Thresholds for placeholder classification
 const THRESHOLDS = {
