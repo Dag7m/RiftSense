@@ -7,6 +7,36 @@ The Node backend's [`backend/src/utils/mlClient.js`](../backend/src/utils/mlClie
 calls `POST /predict` when `ML_ENABLED=true` and falls back to its built-in
 placeholder if this service is unreachable or slow.
 
+## scikit-learn version (Colab ↔ local)
+
+Joblib models must be loaded with the **same scikit-learn version** they were trained with.
+
+- This repo pins **`scikit-learn==1.6.1`** in `requirements.txt` (typical Colab).
+- If you see `InconsistentVersionWarning` (e.g. trained on 1.6.1, running 1.7.2), either:
+  1. `pip install scikit-learn==1.6.1` in your ml-service venv, **or**
+  2. In Colab before training: `!pip install scikit-learn==1.6.1`, re-export `riftsense_model.joblib`, **or**
+  3. Retrain locally: `python scripts/train_model.py` (uses your local sklearn).
+
+Place the file at `artifacts/riftsense_model.joblib` (not `riftsense_model1.joblib` unless you set `MODEL_ARTIFACT_PATH`).
+
+### Colab: pin sklearn before train
+
+```python
+!pip install scikit-learn==1.6.1
+```
+
+## Train model (Random Forest)
+
+After generating training CSVs (`training_data/riftsense_train_1500.csv`):
+
+```bash
+cd ml-service
+pip install -r requirements.txt
+python scripts/train_model.py
+```
+
+This writes `artifacts/riftsense_model.joblib`. The service loads it on startup.
+
 ## Run locally
 
 ```bash
@@ -14,6 +44,7 @@ cd ml-service
 python -m venv .venv
 . .venv/Scripts/activate   # PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python scripts/train_model.py   # if artifacts/ is missing
 uvicorn app.main:app --host 0.0.0.0 --port 5000
 ```
 
@@ -63,15 +94,23 @@ Response:
   "prediction": "earthquake",
   "confidence": 0.83,
   "processing_time_ms": 4,
-  "model_version": "v1-logreg-synthetic",
-  "details": { "probabilities": { "earthquake": 0.83, "noise": 0.1, "unknown": 0.07 } }
+  "model_version": "v2-rf-riftsense-1500",
+  "details": { "probabilities": { "noise": 0.05, "earthquake": 0.9, "unknown": 0.05 } }
 }
 ```
 
 ## Model
 
-`v1-logreg-synthetic` is a `scikit-learn` `LogisticRegression` trained at
-startup on a synthetic dataset shaped like the feature vector above. Replace
-[`app/model.py`](app/model.py) with a real trained model when you have
-labelled RiftSense data; keep the same `Model.predict` signature and response
-shape and nothing else has to change.
+Default: **Random Forest** loaded from `artifacts/riftsense_model.joblib`
+(trained via [`scripts/train_model.py`](scripts/train_model.py) on
+[`training_data/riftsense_train_1500.csv`](training_data/riftsense_train_1500.csv)).
+
+If the artifact is missing, the service falls back to a small synthetic
+`LogisticRegression` for development.
+
+Retrain after adding new labelled rows:
+
+```bash
+python scripts/merge_training_data.py
+python scripts/train_model.py
+```

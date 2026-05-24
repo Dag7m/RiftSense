@@ -29,6 +29,105 @@ const EVENT_TIME_WINDOW_MS = parseInt(process.env.EVENT_TIME_WINDOW_MS) || 60000
 const STA_LTA_ONLY_EVENTS = process.env.STA_LTA_ONLY_EVENTS === 'true' || false;
 // Higher STA/LTA threshold for direct event creation (more conservative)
 const STA_LTA_EVENT_THRESHOLD = parseFloat(process.env.STA_LTA_EVENT_THRESHOLD) || 4.0;
+const MIN_STA_LTA_SAMPLES = staLta.DEFAULT_LTA_WINDOW + staLta.DEFAULT_STA_WINDOW;
+
+/**
+ * Run STA/LTA on a time-ordered segment, then always call ML and persist the prediction.
+ * Event creation remains gated on STA/LTA trigger + confidence / STA_LTA-only rules.
+ */
+async function runStaLtaAndMl(node, chronologicalData, logLabel = 'ingest') {
+  if (chronologicalData.length < MIN_STA_LTA_SAMPLES) {
+    return {
+      sta_lta_triggered: false,
+      sta_lta_ratio: 0,
+      message: `Insufficient data for STA/LTA (need ${MIN_STA_LTA_SAMPLES} points, got ${chronologicalData.length})`,
+      event_created: false,
+      prediction: null,
+      confidence: null,
+      model_version: null,
+      ml_called: false
+    };
+  }
+
+  const magnitudes = chronologicalData.map((d) => parseFloat(d.magnitude));
+  const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
+
+  const features = mlClient.extractFeatures(chronologicalData);
+  features.sta_lta_ratio = staLtaResult.ratio;
+
+  let prediction = null;
+  let mlCalled = false;
+
+  try {
+    prediction = await mlClient.predict({ features });
+    mlCalled = true;
+
+    await PredictionModel.create({
+      node_id: node.id,
+      data_segment_start: chronologicalData[0].time,
+      data_segment_end: chronologicalData[chronologicalData.length - 1].time,
+      prediction: prediction.prediction,
+      confidence: prediction.confidence,
+      features,
+      model_version: prediction.model_version || 'ml-service',
+      processing_time_ms: prediction.processing_time_ms
+    });
+
+    logger.info(`ML prediction after STA/LTA (${logLabel}):`, {
+      node_id: node.node_id,
+      sta_lta_ratio: staLtaResult.ratio,
+      prediction: prediction.prediction,
+      confidence: prediction.confidence,
+      model_version: prediction.model_version
+    });
+  } catch (error) {
+    logger.warn(`ML prediction failed after STA/LTA (${logLabel}):`, error.message);
+  }
+
+  let shouldCreateEvent = false;
+  if (
+    prediction &&
+    prediction.prediction === 'earthquake' &&
+    prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD
+  ) {
+    shouldCreateEvent = true;
+  }
+
+  let eventCreated = false;
+  if (staLtaResult.triggered) {
+    if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
+      const eventPrediction = prediction || {
+        prediction: 'earthquake',
+        confidence: Math.min(0.85, 0.5 + staLtaResult.ratio / 10),
+        details: { sta_lta_only: true }
+      };
+
+      eventCreated = await handleEarthquakeDetection(
+        node,
+        chronologicalData,
+        eventPrediction,
+        staLtaResult
+      );
+    }
+
+    logger.info(`STA/LTA trigger (${logLabel}):`, {
+      node_id: node.node_id,
+      sta_lta_ratio: staLtaResult.ratio,
+      event_created: eventCreated
+    });
+  }
+
+  return {
+    sta_lta_triggered: staLtaResult.triggered,
+    sta_lta_ratio: staLtaResult.ratio,
+    message: staLtaResult.message,
+    prediction: prediction?.prediction ?? null,
+    confidence: prediction?.confidence ?? null,
+    model_version: prediction?.model_version ?? null,
+    event_created: eventCreated,
+    ml_called: mlCalled
+  };
+}
 
 /**
  * Ingest sensor data from ESP32 node
@@ -68,71 +167,10 @@ async function ingestData(req, res) {
     // Update node heartbeat
     await SensorNodeModel.updateHeartbeat(node_id);
 
-    // Get recent data for analysis
+    // Get recent data for STA/LTA + ML (need 550 samples for a valid ratio)
     const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 600 });
-
-    // Perform quick STA/LTA detection if we have enough data
-    let detectionResult = null;
-    if (recentData.length >= 100) {
-      // Reverse data to chronological order (oldest first) - query returns DESC order
-      const chronologicalData = [...recentData].reverse();
-      const magnitudes = chronologicalData.map(d => parseFloat(d.magnitude));
-      const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
-
-      if (staLtaResult.triggered) {
-        // Run ML prediction (optional, but still runs for logging)
-        let prediction = null;
-        let shouldCreateEvent = false;
-
-        try {
-          const features = mlClient.extractFeatures(chronologicalData);
-          features.sta_lta_ratio = staLtaResult.ratio;
-
-          prediction = await mlClient.predict({ features });
-
-          // Store prediction
-          await PredictionModel.create({
-            node_id: node.id,
-            data_segment_start: chronologicalData[0].time,
-            data_segment_end: chronologicalData[chronologicalData.length - 1].time,
-            prediction: prediction.prediction,
-            confidence: prediction.confidence,
-            features: features,
-            processing_time_ms: prediction.processing_time_ms
-          });
-
-          // Check if ML prediction indicates earthquake
-          if (prediction.prediction === 'earthquake' && prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
-            shouldCreateEvent = true;
-          }
-        } catch (error) {
-          logger.warn('ML prediction failed, using STA/LTA only:', error.message);
-        }
-
-        // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
-        let eventCreated = false;
-        if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
-          // Use ML prediction if available, otherwise create synthetic prediction for event
-          const eventPrediction = prediction || {
-            prediction: 'earthquake',
-            confidence: Math.min(0.85, 0.5 + (staLtaResult.ratio / 10)),
-            details: { sta_lta_only: true }
-          };
-
-          eventCreated = await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
-        }
-
-        detectionResult = {
-          sta_lta_triggered: true,
-          sta_lta_ratio: staLtaResult.ratio,
-          prediction: prediction?.prediction || 'pending',
-          confidence: prediction?.confidence || null,
-          event_created: eventCreated
-        };
-
-        logger.info(`Detection alert from node ${node_id}:`, detectionResult);
-      }
-    }
+    const chronologicalData = [...recentData].reverse();
+    const detectionResult = await runStaLtaAndMl(node, chronologicalData, `single:${node_id}`);
 
     res.status(201).json({
       success: true,
@@ -206,80 +244,7 @@ async function ingestBatchData(req, res) {
       }))
       .sort((a, b) => a.time.getTime() - b.time.getTime());
 
-    const minStaLtaSamples = staLta.DEFAULT_LTA_WINDOW + staLta.DEFAULT_STA_WINDOW;
-
-    // Analyze for events if we have enough data for STA/LTA (500 LTA + 50 STA samples)
-    let detectionResult = null;
-    if (chronologicalData.length >= minStaLtaSamples) {
-      const magnitudes = chronologicalData.map(d => parseFloat(d.magnitude));
-      const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
-
-      if (staLtaResult.triggered) {
-        let prediction = null;
-        let shouldCreateEvent = false;
-
-        try {
-          const features = mlClient.extractFeatures(chronologicalData);
-          features.sta_lta_ratio = staLtaResult.ratio;
-
-          prediction = await mlClient.predict({ features });
-
-          // Store prediction
-          await PredictionModel.create({
-            node_id: node.id,
-            data_segment_start: chronologicalData[0].time,
-            data_segment_end: chronologicalData[chronologicalData.length - 1].time,
-            prediction: prediction.prediction,
-            confidence: prediction.confidence,
-            features: features,
-            processing_time_ms: prediction.processing_time_ms
-          });
-
-          // Check if ML prediction indicates earthquake
-          if (prediction.prediction === 'earthquake' && prediction.confidence >= EVENT_CONFIDENCE_THRESHOLD) {
-            shouldCreateEvent = true;
-          }
-        } catch (error) {
-          logger.warn('ML prediction failed in batch, using STA/LTA only:', error.message);
-        }
-
-        // Create event if ML confirms OR if STA/LTA-only mode is enabled with high ratio
-        let eventCreated = false;
-        if (shouldCreateEvent || (STA_LTA_ONLY_EVENTS && staLtaResult.ratio >= STA_LTA_EVENT_THRESHOLD)) {
-          const eventPrediction = prediction || {
-            prediction: 'earthquake',
-            confidence: Math.min(0.85, 0.5 + (staLtaResult.ratio / 10)),
-            details: { sta_lta_only: true }
-          };
-
-          eventCreated = await handleEarthquakeDetection(node, chronologicalData, eventPrediction, staLtaResult);
-        }
-
-        detectionResult = {
-          sta_lta_triggered: true,
-          sta_lta_ratio: staLtaResult.ratio,
-          prediction: prediction?.prediction || 'pending',
-          confidence: prediction?.confidence || null,
-          event_created: eventCreated
-        };
-
-        logger.info(`Batch detection alert from node ${node_id}:`, detectionResult);
-      } else {
-        detectionResult = {
-          sta_lta_triggered: false,
-          sta_lta_ratio: staLtaResult.ratio,
-          message: staLtaResult.message,
-          event_created: false
-        };
-      }
-    } else {
-      detectionResult = {
-        sta_lta_triggered: false,
-        sta_lta_ratio: 0,
-        message: `Insufficient data for STA/LTA (need ${minStaLtaSamples} points, got ${chronologicalData.length})`,
-        event_created: false
-      };
-    }
+    const detectionResult = await runStaLtaAndMl(node, chronologicalData, `batch:${node_id}`);
 
     res.status(201).json({
       success: true,

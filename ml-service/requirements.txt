@@ -1,5 +1,7 @@
 fastapi>=0.110,<0.116
 uvicorn[standard]>=0.30,<0.32
 pydantic>=2.7,<3
-scikit-learn>=1.3,<2
+# Pin to match Colab exports; bump only after retraining the .joblib on the same version
+scikit-learn==1.6.1
 numpy>=1.26,<3
+joblib>=1.3,<2

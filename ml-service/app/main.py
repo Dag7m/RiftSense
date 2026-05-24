@@ -13,10 +13,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import logging
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from app.model import MODEL_VERSION, model
+from app.model import model
+
+logger = logging.getLogger("riftsense.ml")
 
 
 class Features(BaseModel):
@@ -67,13 +71,14 @@ class PredictResponse(BaseModel):
 
 app = FastAPI(
     title="RiftSense ML Service",
-    version=MODEL_VERSION,
+    version="2.0.0",
     description="Inference sidecar for the RiftSense seismic sensor network.",
 )
 
 
 @app.on_event("startup")
 def _warm_model() -> None:
+    logging.basicConfig(level=logging.INFO)
     if not model.loaded:
         model.load()
 
@@ -82,7 +87,7 @@ def _warm_model() -> None:
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
-        "model_version": MODEL_VERSION,
+        "model_version": model.version,
         "loaded": model.loaded,
     }
 
@@ -91,6 +96,14 @@ def health() -> dict[str, Any]:
 def predict(body: PredictRequest) -> PredictResponse:
     features = body.resolved()
     result = model.predict(features)
+    logger.info(
+        "predict label=%s confidence=%s sta_lta=%s magnitude=%s version=%s",
+        result.prediction,
+        result.confidence,
+        features.get("sta_lta_ratio"),
+        features.get("magnitude"),
+        result.model_version,
+    )
     return PredictResponse(
         prediction=result.prediction,
         confidence=result.confidence,

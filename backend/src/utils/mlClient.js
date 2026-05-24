@@ -214,6 +214,13 @@ async function callMLService(features) {
       throw new Error('ML service returned malformed response');
     }
 
+    logger.info('ML service /predict', {
+      prediction: body.prediction,
+      confidence: body.confidence,
+      model_version: body.model_version,
+      processing_time_ms: body.processing_time_ms
+    });
+
     return {
       prediction: body.prediction,
       confidence: body.confidence,
