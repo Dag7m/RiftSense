@@ -35,6 +35,7 @@ import {
   formatLatLng,
   relativeFromNow,
 } from "@/lib/formatters";
+import type { SensorDataPoint } from "@/lib/types";
 
 import { useSocket } from "@/components/providers/socket-provider";
 import type { SensorDataPoint } from "@/lib/types";
@@ -160,6 +161,11 @@ export default function AdminNodeDetailPage() {
             <EmptyState
               title="Could not load sensor data"
               description="Make sure the node is registered and streaming."
+            />
+          ) : (liveQuery.data ?? []).length === 0 ? (
+            <EmptyState
+              title="No samples in the last 60s"
+              description=""
             />
           ) : (
             <WaveformChart data={liveQuery.data ?? []} height={280} />

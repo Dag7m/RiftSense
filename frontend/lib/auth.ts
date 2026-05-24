@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { jwtDecode } from "jwt-decode";
 import axios from "axios";
 
+import { unwrapUser } from "@/lib/response";
 import type { AuthTokens, User } from "@/lib/types";
 
 const STORAGE_KEY = "riftsense.auth";
@@ -125,9 +126,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const response = await axios.get(`${baseURL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${stored.accessToken}` },
       });
-      const data = response.data?.data ?? response.data;
-      const fetchedUser: User = data?.user ?? data;
-      if (fetchedUser) {
+      const fetchedUser = unwrapUser(response.data);
+      if (fetchedUser?.id) {
         set({ user: fetchedUser });
         persist({
           accessToken: stored.accessToken,

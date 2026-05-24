@@ -14,10 +14,8 @@ interface AuthGuardProps {
 export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isHydrated } = useAuthStore((s) => ({
-    user: s.user,
-    isHydrated: s.isHydrated,
-  }));
+  const user = useAuthStore((s) => s.user);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
 
   React.useEffect(() => {
     if (!isHydrated) return;

@@ -171,15 +171,19 @@ class UserModel {
    * @returns {Promise<Object|null>} Updated user
    */
   static async update(id, updateData) {
-    const allowedFields = ['name', 'role', 'is_active'];
+    const allowedFields = ['name', 'email', 'role', 'is_active'];
     const updates = [];
     const values = [];
     let paramCount = 1;
 
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
+        const value =
+          field === 'email'
+            ? String(updateData[field]).toLowerCase()
+            : updateData[field];
         updates.push(`${field} = $${paramCount}`);
-        values.push(updateData[field]);
+        values.push(value);
         paramCount++;
       }
     }

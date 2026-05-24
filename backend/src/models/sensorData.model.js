@@ -107,7 +107,8 @@ class SensorDataModel {
     if (startTime && endTime) {
       params.push(startTime, endTime);
       sql += ` AND time BETWEEN $2 AND $3`;
-    } else {
+    } else if (Number.isFinite(minutes) && minutes > 0) {
+      // minutes=0 means "latest N rows" only (no wall-clock window) — for live charts when device clock skews
       sql += ` AND time > NOW() - INTERVAL '${minutes} minutes'`;
     }
 

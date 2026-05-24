@@ -1,5 +1,13 @@
-import { api, unwrap } from "@/lib/api";
+import {
+  api,
+  normalizeAuthTokens,
+  unwrap,
+  unwrapPaginatedList,
+  unwrapUser,
+} from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
 import type {
+  AuthTokens,
   EventCreateInput,
   EventStatusUpdateInput,
   FeltReport,
@@ -14,40 +22,44 @@ import type {
 
 // ---------- Auth ----------
 
-export async function loginRequest(input: { email: string; password: string }) {
+export interface AuthSession {
+  user: User;
+  tokens: AuthTokens;
+}
+
+export async function loginRequest(input: {
+  email: string;
+  password: string;
+}): Promise<AuthSession> {
   const { data } = await api.post("/api/auth/login", input);
-  return unwrap<{
-    user: User;
-    tokens: { accessToken: string; refreshToken: string };
-  }>(data);
+  const payload = unwrap<{ user: User } & Record<string, unknown>>(data);
+  return { user: payload.user, tokens: normalizeAuthTokens(payload) };
 }
 
 export async function registerRequest(input: {
   email: string;
   password: string;
   name?: string;
-}) {
+}): Promise<AuthSession> {
   const { data } = await api.post("/api/auth/register", input);
-  return unwrap<{
-    user: User;
-    tokens: { accessToken: string; refreshToken: string };
-  }>(data);
+  const payload = unwrap<{ user: User } & Record<string, unknown>>(data);
+  return { user: payload.user, tokens: normalizeAuthTokens(payload) };
 }
 
-export async function fetchMe() {
-  const { data } = await api.get("/api/auth/me");
-  const payload = unwrap<{ user?: User } | User>(data);
-  return ("user" in (payload as object) && (payload as { user?: User }).user
-    ? (payload as { user: User }).user
-    : (payload as User));
+export async function fetchMe(): Promise<User> {
+  const cached = useAuthStore.getState().user;
+  try {
+    const { data } = await api.get("/api/auth/me");
+    return unwrapUser(data);
+  } catch (error) {
+    if (cached?.id && cached.email) return cached;
+    throw error;
+  }
 }
 
 export async function updateMe(input: { name?: string; email?: string }) {
   const { data } = await api.put("/api/auth/me", input);
-  const payload = unwrap<{ user?: User } | User>(data);
-  return ("user" in (payload as object) && (payload as { user?: User }).user
-    ? (payload as { user: User }).user
-    : (payload as User));
+  return unwrapUser(data);
 }
 
 export async function changePasswordRequest(input: {
@@ -164,15 +176,24 @@ export async function fetchNode(nodeId: string) {
 
 export async function fetchSensorData(
   nodeId: string,
-  params: { start_time?: string; end_time?: string; limit?: number } = {},
+  params: {
+    start_time?: string;
+    end_time?: string;
+    limit?: number;
+    minutes?: number;
+  } = {},
 ) {
   const { data } = await api.get(`/api/sensors/data/${nodeId}`, { params });
   const payload = unwrap<
     | SensorDataPoint[]
-    | { data?: SensorDataPoint[]; points?: SensorDataPoint[] }
+    | {
+        readings?: SensorDataPoint[];
+        data?: SensorDataPoint[];
+        points?: SensorDataPoint[];
+      }
   >(data);
   if (Array.isArray(payload)) return payload;
-  return payload.data ?? payload.points ?? [];
+  return payload.readings ?? payload.data ?? payload.points ?? [];
 }
 
 export async function fetchSensorAggregates(
@@ -272,7 +293,15 @@ export async function fetchAdminStats(period = "7d") {
 
 export async function fetchAdminUsers(params: { page?: number; limit?: number } = {}) {
   const { data } = await api.get("/api/admin/users", { params });
-  return unwrap<{ users: User[]; pagination: Pagination }>(data);
+  const { items, pagination } = unwrapPaginatedList<User>(data);
+  return {
+    users: items,
+    pagination: pagination ?? {
+      page: params.page ?? 1,
+      limit: params.limit ?? 20,
+      total: items.length,
+    },
+  };
 }
 
 export async function updateAdminUser(
@@ -290,18 +319,24 @@ export async function deactivateAdminUser(id: string) {
 
 export async function fetchAuditLogs(params: { page?: number; limit?: number } = {}) {
   const { data } = await api.get("/api/admin/logs", { params });
-  return unwrap<{
-    logs: Array<{
-      id: string;
-      admin_id?: string;
-      action: string;
-      resource_type: string;
-      resource_id?: string;
-      created_at: string;
-      details?: Record<string, unknown>;
-    }>;
-    pagination: Pagination;
-  }>(data);
+  type AuditLog = {
+    id: string;
+    admin_id?: string;
+    action: string;
+    resource_type: string;
+    resource_id?: string;
+    created_at: string;
+    details?: Record<string, unknown>;
+  };
+  const { items, pagination } = unwrapPaginatedList<AuditLog>(data);
+  return {
+    logs: items,
+    pagination: pagination ?? {
+      page: params.page ?? 1,
+      limit: params.limit ?? 50,
+      total: items.length,
+    },
+  };
 }
 
 export async function fetchRecentAdminActivity() {

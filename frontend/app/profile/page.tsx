@@ -42,15 +42,15 @@ function ProfileForms() {
     resolver: zodResolver(ProfileSchema),
     defaultValues: { name: "", email: "" },
   });
+  const { reset: resetProfile } = profileForm;
 
   React.useEffect(() => {
-    if (meQuery.data) {
-      profileForm.reset({
-        name: meQuery.data.name ?? "",
-        email: meQuery.data.email ?? "",
-      });
-    }
-  }, [meQuery.data, profileForm]);
+    if (!meQuery.data) return;
+    resetProfile({
+      name: meQuery.data.name ?? "",
+      email: meQuery.data.email ?? "",
+    });
+  }, [meQuery.data, resetProfile]);
 
   const updateProfile = useMutation({
     mutationFn: updateMe,
@@ -91,6 +91,14 @@ function ProfileForms() {
         <Skeleton className="h-32 w-full" />
         <Skeleton className="h-48 w-full" />
       </div>
+    );
+  }
+
+  if (meQuery.isError) {
+    return (
+      <p className="text-sm text-destructive">
+        {apiErrorMessage(meQuery.error, "Could not load your profile")}
+      </p>
     );
   }
 

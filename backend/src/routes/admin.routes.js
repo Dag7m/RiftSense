@@ -173,5 +173,36 @@ router.post('/cleanup',
   asyncHandler(adminController.cleanupOldData)
 );
 
+// ========================================
+// ML Predictions
+// ========================================
+
+/**
+ * @route   GET /api/admin/predictions
+ * @desc    List ML predictions with filters and pagination
+ * @access  Admin
+ */
+router.get('/predictions',
+  asyncHandler(adminController.getPredictions)
+);
+
+/**
+ * @route   GET /api/admin/predictions/stats
+ * @desc    Aggregate prediction stats
+ * @access  Admin
+ */
+router.get('/predictions/stats',
+  asyncHandler(adminController.getPredictionStats)
+);
+
+/**
+ * @route   GET /api/admin/ml/health
+ * @desc    ML service / placeholder health
+ * @access  Admin
+ */
+router.get('/ml/health',
+  asyncHandler(adminController.getMlHealth)
+);
+
 module.exports = router;
 

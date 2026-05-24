@@ -14,6 +14,7 @@ const logger = require('./logger');
 // Configuration
 const ML_ENABLED = process.env.ML_ENABLED === 'true';
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5000';
+const ML_REQUEST_TIMEOUT_MS = parseInt(process.env.ML_REQUEST_TIMEOUT_MS, 10) || 500;
 
 // Thresholds for placeholder classification
 const THRESHOLDS = {
@@ -244,17 +245,56 @@ async function predictBatch(segments) {
 }
 
 /**
- * Check if ML service is healthy
+ * Check if ML service is healthy.
+ *
+ * When ML_ENABLED is true, probes ${ML_SERVICE_URL}/health with the same
+ * short timeout used for predictions and attaches the upstream body (or
+ * error string) under `service`.
+ *
  * @returns {Promise<Object>} Health status
  */
 async function healthCheck() {
-  return {
+  const base = {
     enabled: ML_ENABLED,
     service_url: ML_SERVICE_URL,
-    status: ML_ENABLED ? 'external_service' : 'placeholder_active',
+    request_timeout_ms: ML_REQUEST_TIMEOUT_MS,
     placeholder_version: 'placeholder-v1',
     thresholds: THRESHOLDS
   };
+
+  if (!ML_ENABLED) {
+    return { ...base, status: 'placeholder_active', service: null };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ML_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${ML_SERVICE_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+
+    const body = await response.json().catch(() => null);
+
+    return {
+      ...base,
+      status: response.ok ? 'external_service' : 'service_unreachable',
+      service: body || { http_status: response.status }
+    };
+  } catch (error) {
+    return {
+      ...base,
+      status: 'service_unreachable',
+      service: {
+        error: error.name === 'AbortError'
+          ? `timed out after ${ML_REQUEST_TIMEOUT_MS}ms`
+          : error.message
+      }
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 module.exports = {

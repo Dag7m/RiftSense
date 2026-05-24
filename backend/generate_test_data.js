@@ -9,17 +9,18 @@ const path = require('path');
 // Configuration
 const NODE_ID = 'ESP32_NODE_001';
 const SAMPLING_RATE = 100;
-const BASE_TIMESTAMP = '2026-01-27T16:00:00.000Z';
+const INTERVAL_MS = 100; // 10 samples per second — each row gets a unique timestamp
 const BACKGROUND_POINTS = 500; // Low magnitude background noise
 const TRIGGER_POINTS = 50;      // High magnitude trigger points
 const TOTAL_POINTS = BACKGROUND_POINTS + TRIGGER_POINTS;
 
-// Generate timestamp
-function generateTimestamp(baseTime, index) {
-    const base = new Date(baseTime);
-    const milliseconds = index * 100; // 100ms intervals (10 samples per second)
-    const timestamp = new Date(base.getTime() + milliseconds);
-    return timestamp.toISOString();
+// Batch ends at "now" on each run; first row is ~(TOTAL_POINTS - 1) * INTERVAL_MS earlier
+const BATCH_END_MS = Date.now();
+const BATCH_START_MS = BATCH_END_MS - (TOTAL_POINTS - 1) * INTERVAL_MS;
+
+// Generate timestamp (one distinct ISO string per index)
+function generateTimestamp(index) {
+    return new Date(BATCH_START_MS + index * INTERVAL_MS).toISOString();
 }
 
 // Generate background noise data (low magnitude ~0.01-0.02)
@@ -32,7 +33,7 @@ function generateBackgroundPoint(index) {
         x: parseFloat(value.toFixed(6)),
         y: parseFloat((value + (Math.random() - 0.5) * 0.002).toFixed(6)),
         z: parseFloat((value + (Math.random() - 0.5) * 0.002).toFixed(6)),
-        timestamp: generateTimestamp(BASE_TIMESTAMP, index)
+        timestamp: generateTimestamp(index)
     };
 }
 
@@ -46,7 +47,7 @@ function generateTriggerPoint(index) {
         x: parseFloat(magnitude.toFixed(6)),
         y: parseFloat(magnitude.toFixed(6)),
         z: parseFloat(magnitude.toFixed(6)),
-        timestamp: generateTimestamp(BASE_TIMESTAMP, index)
+        timestamp: generateTimestamp(index)
     };
 }
 
@@ -77,6 +78,7 @@ const outputPath = path.join(__dirname, 'test_batch_550_points.json');
 fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
 
 console.log(`\n✅ Generated ${TOTAL_POINTS} data points`);
+console.log(`🕐 Timestamps: ${new Date(BATCH_START_MS).toISOString()} → ${new Date(BATCH_END_MS).toISOString()} (${INTERVAL_MS}ms apart)`);
 console.log(`📁 Saved to: ${outputPath}`);
 console.log(`\n📊 Data breakdown:`);
 console.log(`   - Background points: ${BACKGROUND_POINTS} (magnitude ~0.01-0.02)`);

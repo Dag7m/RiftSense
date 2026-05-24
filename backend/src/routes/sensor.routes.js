@@ -110,5 +110,16 @@ router.get('/data/:nodeId/aggregates',
   asyncHandler(sensorController.getNodeAggregates)
 );
 
+/**
+ * @route   GET /api/sensors/nodes/:nodeId/predictions
+ * @desc    Recent ML predictions for a node
+ * @access  Admin
+ */
+router.get('/nodes/:nodeId/predictions',
+  authenticate,
+  requireAdmin,
+  asyncHandler(sensorController.getNodePredictions)
+);
+
 module.exports = router;
 
