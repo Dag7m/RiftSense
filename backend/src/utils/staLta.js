@@ -13,7 +13,7 @@ const logger = require('./logger');
 // Default parameters
 const DEFAULT_STA_WINDOW = 50;    // Short-term window (samples) - typically 0.5-2 seconds
 const DEFAULT_LTA_WINDOW = 500;   // Long-term window (samples) - typically 5-30 seconds
-const DEFAULT_TRIGGER = 3.0;      // Trigger threshold
+const DEFAULT_TRIGGER = 2.0;      // Trigger threshold
 const DEFAULT_DETRIGGER = 1.5;    // Detrigger threshold
 
 /**

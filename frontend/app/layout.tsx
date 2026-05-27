@@ -8,6 +8,7 @@ import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { NotificationAlertPanel } from "@/components/notifications/notification-alert-panel";
 
 import "./globals.css";
 
@@ -39,6 +40,7 @@ export default function RootLayout({
                 <main className="flex-1">{children}</main>
                 <Footer />
               </div>
+              <NotificationAlertPanel />
               <Toaster position="top-right" richColors />
             </AuthProvider>
           </QueryProvider>

@@ -12,11 +12,13 @@ import type {
   EventStatusUpdateInput,
   FeltReport,
   FeltReportInput,
+  Notification,
   NodeCreateInput,
   Pagination,
   SeismicEvent,
   SensorDataPoint,
   SensorNode,
+  UserLocation,
   User,
 } from "@/lib/types";
 
@@ -156,6 +158,46 @@ export async function updateEventStatus(
 export async function deleteEvent(id: string) {
   const { data } = await api.delete(`/api/events/${id}`);
   return data;
+}
+
+// ---------- Location / Notifications ----------
+
+export async function fetchMyLocation() {
+  const { data } = await api.get("/api/location/me");
+  return unwrap<UserLocation | null>(data);
+}
+
+export async function upsertMyLocation(input: {
+  latitude: number;
+  longitude: number;
+  radius_km?: number | null;
+  notifications_enabled?: boolean;
+}) {
+  const { data } = await api.put("/api/location/me", input);
+  return unwrap<UserLocation>(data);
+}
+
+export async function fetchMyNotifications(params?: {
+  limit?: number;
+  unread?: boolean;
+}) {
+  const { data } = await api.get("/api/notifications", {
+    params: {
+      limit: params?.limit,
+      unread: params?.unread ? "true" : undefined,
+    },
+  });
+  return unwrap<Notification[]>(data);
+}
+
+export async function markNotificationRead(id: string) {
+  const { data } = await api.put(`/api/notifications/${id}/read`);
+  return unwrap<Notification>(data);
+}
+
+export async function markAllNotificationsRead() {
+  const { data } = await api.put("/api/notifications/read-all");
+  return unwrap<{ updated: number }>(data);
 }
 
 // ---------- Sensor nodes & data (admin) ----------

@@ -8,6 +8,7 @@ const {
   estimateMagnitudeFromPeak,
   peakMagnitudeFromSegment
 } = require('../utils/magnitudeEstimate');
+const { notifyUsersNearEvent } = require('../services/geoAlert.service');
 const logger = require('../utils/logger');
 const { isValidUUID } = require('../utils/validators');
 
@@ -23,7 +24,7 @@ const NODE_PREDICTIONS_DEFAULT_LIMIT = 100;
 
 // Event detection thresholds
 const EVENT_CONFIDENCE_THRESHOLD = parseFloat(process.env.EVENT_CONFIDENCE_THRESHOLD) || 0.7;
-const STA_LTA_THRESHOLD = parseFloat(process.env.STA_LTA_THRESHOLD) || 3.0;
+const STA_LTA_THRESHOLD = parseFloat(process.env.STA_LTA_THRESHOLD) || 2.0;
 const EVENT_TIME_WINDOW_MS = parseInt(process.env.EVENT_TIME_WINDOW_MS) || 60000;
 // Allow event creation based on STA/LTA alone (without ML requirement)
 const STA_LTA_ONLY_EVENTS = process.env.STA_LTA_ONLY_EVENTS === 'true' || false;
@@ -31,15 +32,58 @@ const STA_LTA_ONLY_EVENTS = process.env.STA_LTA_ONLY_EVENTS === 'true' || false;
 const STA_LTA_EVENT_THRESHOLD = parseFloat(process.env.STA_LTA_EVENT_THRESHOLD) || 4.0;
 const MIN_STA_LTA_SAMPLES = staLta.DEFAULT_LTA_WINDOW + staLta.DEFAULT_STA_WINDOW;
 
+const STA_LTA_BANNER_WIDTH = 78;
+
+function logStaLtaTriggerBanner({
+  logLabel,
+  node,
+  staLtaResult,
+  chronologicalData,
+  prediction,
+  eventCreated
+}) {
+  const line = '='.repeat(STA_LTA_BANNER_WIDTH);
+  const pad = (label, value) =>
+    `  ${label.padEnd(18)} ${value}`;
+
+  const segmentStart = chronologicalData[0]?.time;
+  const segmentEnd = chronologicalData[chronologicalData.length - 1]?.time;
+  const peakMag = peakMagnitudeFromSegment(chronologicalData);
+
+  const rows = [
+    line,
+    '  *** STA/LTA TRIGGER — seismic detection threshold exceeded ***',
+    line,
+    pad('Node ID', node.node_id),
+    pad('Source', logLabel),
+    pad('STA/LTA ratio', `${staLtaResult.ratio.toFixed(4)}  (trigger >= ${STA_LTA_THRESHOLD})`),
+    pad('Samples analyzed', String(chronologicalData.length)),
+    pad('Peak magnitude', peakMag != null ? peakMag.toFixed(6) : 'n/a'),
+    pad('Segment start', segmentStart ? new Date(segmentStart).toISOString() : 'n/a'),
+    pad('Segment end', segmentEnd ? new Date(segmentEnd).toISOString() : 'n/a'),
+    pad('ML prediction', prediction?.prediction ?? 'n/a'),
+    pad('ML confidence', prediction?.confidence != null ? prediction.confidence.toFixed(4) : 'n/a'),
+    pad('Event created', eventCreated ? 'YES' : 'no'),
+    pad('STA/LTA-only mode', STA_LTA_ONLY_EVENTS ? 'enabled' : 'disabled'),
+    line,
+    '  Check dashboard / events API for follow-up. This banner marks a live STA/LTA fire.',
+    line
+  ];
+
+  logger.warn(rows.join('\n'));
+}
+
 /**
- * Run STA/LTA on a time-ordered segment, then always call ML and persist the prediction.
+ * Run STA/LTA on a time-ordered segment.
+ * ML (and ML prediction persistence) only runs when STA/LTA triggers (ratio >= STA_LTA_THRESHOLD).
  * Event creation remains gated on STA/LTA trigger + confidence / STA_LTA-only rules.
  */
 async function runStaLtaAndMl(node, chronologicalData, logLabel = 'ingest') {
   if (chronologicalData.length < MIN_STA_LTA_SAMPLES) {
-    return {
+    const detectionResult = {
       sta_lta_triggered: false,
       sta_lta_ratio: 0,
+      sta_lta_threshold: STA_LTA_THRESHOLD,
       message: `Insufficient data for STA/LTA (need ${MIN_STA_LTA_SAMPLES} points, got ${chronologicalData.length})`,
       event_created: false,
       prediction: null,
@@ -47,41 +91,50 @@ async function runStaLtaAndMl(node, chronologicalData, logLabel = 'ingest') {
       model_version: null,
       ml_called: false
     };
+
+    logger.info(`Detection result (${logLabel}):`, {
+      detection: detectionResult
+    });
+
+    return detectionResult;
   }
 
   const magnitudes = chronologicalData.map((d) => parseFloat(d.magnitude));
   const staLtaResult = staLta.quickDetect(magnitudes, { triggerThreshold: STA_LTA_THRESHOLD });
 
-  const features = mlClient.extractFeatures(chronologicalData);
-  features.sta_lta_ratio = staLtaResult.ratio;
-
   let prediction = null;
   let mlCalled = false;
 
-  try {
-    prediction = await mlClient.predict({ features });
-    mlCalled = true;
+  // Only call ML when STA/LTA actually triggers (ratio >= STA_LTA_THRESHOLD).
+  if (staLtaResult.triggered) {
+    const features = mlClient.extractFeatures(chronologicalData);
+    features.sta_lta_ratio = staLtaResult.ratio;
 
-    await PredictionModel.create({
-      node_id: node.id,
-      data_segment_start: chronologicalData[0].time,
-      data_segment_end: chronologicalData[chronologicalData.length - 1].time,
-      prediction: prediction.prediction,
-      confidence: prediction.confidence,
-      features,
-      model_version: prediction.model_version || 'ml-service',
-      processing_time_ms: prediction.processing_time_ms
-    });
+    try {
+      prediction = await mlClient.predict({ features });
+      mlCalled = true;
 
-    logger.info(`ML prediction after STA/LTA (${logLabel}):`, {
-      node_id: node.node_id,
-      sta_lta_ratio: staLtaResult.ratio,
-      prediction: prediction.prediction,
-      confidence: prediction.confidence,
-      model_version: prediction.model_version
-    });
-  } catch (error) {
-    logger.warn(`ML prediction failed after STA/LTA (${logLabel}):`, error.message);
+      await PredictionModel.create({
+        node_id: node.id,
+        data_segment_start: chronologicalData[0].time,
+        data_segment_end: chronologicalData[chronologicalData.length - 1].time,
+        prediction: prediction.prediction,
+        confidence: prediction.confidence,
+        features,
+        model_version: prediction.model_version || 'ml-service',
+        processing_time_ms: prediction.processing_time_ms
+      });
+
+      logger.info(`ML prediction after STA/LTA (${logLabel}):`, {
+        node_id: node.node_id,
+        sta_lta_ratio: staLtaResult.ratio,
+        prediction: prediction.prediction,
+        confidence: prediction.confidence,
+        model_version: prediction.model_version
+      });
+    } catch (error) {
+      logger.warn(`ML prediction failed after STA/LTA (${logLabel}):`, error.message);
+    }
   }
 
   let shouldCreateEvent = false;
@@ -110,16 +163,20 @@ async function runStaLtaAndMl(node, chronologicalData, logLabel = 'ingest') {
       );
     }
 
-    logger.info(`STA/LTA trigger (${logLabel}):`, {
-      node_id: node.node_id,
-      sta_lta_ratio: staLtaResult.ratio,
-      event_created: eventCreated
+    logStaLtaTriggerBanner({
+      logLabel,
+      node,
+      staLtaResult,
+      chronologicalData,
+      prediction,
+      eventCreated
     });
   }
 
-  return {
+  const detectionResult = {
     sta_lta_triggered: staLtaResult.triggered,
     sta_lta_ratio: staLtaResult.ratio,
+    sta_lta_threshold: staLtaResult.threshold,
     message: staLtaResult.message,
     prediction: prediction?.prediction ?? null,
     confidence: prediction?.confidence ?? null,
@@ -127,6 +184,12 @@ async function runStaLtaAndMl(node, chronologicalData, logLabel = 'ingest') {
     event_created: eventCreated,
     ml_called: mlCalled
   };
+
+  logger.info(`Detection result (${logLabel}):`, {
+    detection: detectionResult
+  });
+
+  return detectionResult;
 }
 
 /**
@@ -230,21 +293,33 @@ async function ingestBatchData(req, res) {
     // Update node heartbeat
     await SensorNodeModel.updateHeartbeat(node_id);
 
-    // Analyze the batch we just received (not wall-clock "last 1 minute" from DB).
-    // Postman/file ingest often has timestamps from generate_test_data.js that are
-    // minutes old by post time; getRecent(minutes:1) would return 0 rows and skip detection.
-    const chronologicalData = batchData
-      .map((d) => ({
-        time: d.timestamp,
-        x_axis: d.x_axis,
-        y_axis: d.y_axis,
-        z_axis: d.z_axis,
-        magnitude: Math.sqrt(d.x_axis ** 2 + d.y_axis ** 2 + d.z_axis ** 2),
-        sampling_rate: d.sampling_rate
-      }))
-      .sort((a, b) => a.time.getTime() - b.time.getTime());
+    // If the request already contains enough samples for STA/LTA, analyze the request body.
+    // Otherwise (ESP32 sends small batches), analyze a recent DB segment so STA/LTA can
+    // "accumulate" across many batch requests.
+    let chronologicalData = [];
+    let logLabel = `batch:${node_id}`;
 
-    const detectionResult = await runStaLtaAndMl(node, chronologicalData, `batch:${node_id}`);
+    if (batchData.length >= MIN_STA_LTA_SAMPLES) {
+      // Analyze the batch we just received (not wall-clock "last 1 minute" from DB).
+      // Postman/file ingest often has timestamps from generate_test_data.js that are
+      // minutes old by post time; getRecent(minutes:1) would return 0 rows and skip detection.
+      chronologicalData = batchData
+        .map((d) => ({
+          time: d.timestamp,
+          x_axis: d.x_axis,
+          y_axis: d.y_axis,
+          z_axis: d.z_axis,
+          magnitude: Math.sqrt(d.x_axis ** 2 + d.y_axis ** 2 + d.z_axis ** 2),
+          sampling_rate: d.sampling_rate
+        }))
+        .sort((a, b) => a.time.getTime() - b.time.getTime());
+    } else {
+      const recentData = await SensorDataModel.getRecent(node.id, { minutes: 1, limit: 600 });
+      chronologicalData = [...recentData].reverse();
+      logLabel = `batch-db:${node_id}`;
+    }
+
+    const detectionResult = await runStaLtaAndMl(node, chronologicalData, logLabel);
 
     res.status(201).json({
       success: true,
@@ -312,6 +387,14 @@ async function handleEarthquakeDetection(node, sensorData, prediction, staLtaRes
       });
 
       logger.info(`Added detection to existing event ${pendingEvent.id}`);
+
+      // Notify nearby users (idempotent per user+event)
+      await notifyUsersNearEvent({
+        ...pendingEvent,
+        magnitude_estimate: updatedMagnitude,
+        latitude,
+        longitude
+      });
     } else {
       // Create new event
       const newEvent = await EventModel.create({
@@ -334,6 +417,9 @@ async function handleEarthquakeDetection(node, sensorData, prediction, staLtaRes
       });
 
       logger.info(`Created new earthquake event ${newEvent.id}`);
+
+      // Notify nearby users (idempotent per user+event)
+      await notifyUsersNearEvent(newEvent);
     }
 
     return true;

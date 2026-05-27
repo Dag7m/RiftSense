@@ -6,6 +6,9 @@ const eventRoutes = require('./routes/event.routes');
 const feltRoutes = require('./routes/felt.routes');
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
+const locationRoutes = require('./routes/location.routes');
+const notificationRoutes = require('./routes/notification.routes');
+const pushRoutes = require('./routes/push.routes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const { generalApiLimiter } = require('./middlewares/rateLimit.middleware');
@@ -59,6 +62,9 @@ app.use('/api/events', eventRoutes);
 app.use('/api/felt', feltRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/location', locationRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/push', pushRoutes);
 
 // Error handling
 app.use(notFoundHandler);

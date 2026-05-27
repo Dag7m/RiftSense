@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate": "node src/config/timescale.js"
+    "migrate": "node src/config/timescale.js",
+    "test": "node --test tests/staLta.test.js tests/mlClient.test.js tests/validators.test.js",
+    "test:report": "node --test --test-reporter spec tests/staLta.test.js tests/mlClient.test.js tests/validators.test.js"
   },
   "keywords": [
     "seismic",
@@ -29,6 +31,7 @@
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0",
     "uuid": "^10.0.0",
+    "web-push": "^3.6.7",
     "winston": "^3.14.2"
   },
   "devDependencies": {

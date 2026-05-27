@@ -21,7 +21,7 @@ const THRESHOLDS = {
   EARTHQUAKE_MAGNITUDE: 0.1,     // Magnitude above which may indicate earthquake
   HIGH_CONFIDENCE_MAG: 0.5,      // Magnitude for high confidence earthquake
   NOISE_CEILING: 0.05,           // Typical noise level ceiling
-  STA_LTA_TRIGGER: 3.0           // STA/LTA ratio trigger threshold
+  STA_LTA_TRIGGER: 2.0           // STA/LTA ratio trigger threshold
 };
 
 /**

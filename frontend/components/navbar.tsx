@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Activity, LogOut, Menu, Shield, UserCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,6 +92,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          <NotificationBell />
 
           {user ? (
             <DropdownMenu>

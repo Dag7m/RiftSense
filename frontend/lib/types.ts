@@ -92,6 +92,33 @@ export interface FeltReport {
   created_at?: string;
 }
 
+export interface UserLocation {
+  id: string;
+  user_id: string;
+  latitude: number | string;
+  longitude: number | string;
+  radius_km?: number | string | null;
+  notifications_enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type NotificationType = "earthquake_alert";
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  event_id?: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+  magnitude_estimate?: number | string | null;
+  alert_radius_km?: number | string | null;
+  distance_km?: number | string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
 export interface Pagination {
   page: number;
   limit: number;
