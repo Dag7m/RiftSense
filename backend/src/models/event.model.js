@@ -358,6 +358,37 @@ class EventModel {
     );
     return result.rows[0];
   }
+
+  /**
+   * Public summary stats for home page and GET /api/events/stats.
+   * @returns {Promise<Object>} Counts from the events table
+   */
+  static async getSummaryStats() {
+    const result = await query(
+      `SELECT 
+        COUNT(*)::int AS total_events,
+        COUNT(*) FILTER (WHERE status = 'confirmed')::int AS confirmed_earthquakes,
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+        COUNT(*) FILTER (WHERE status = 'false_positive')::int AS false_positives,
+        COUNT(*) FILTER (WHERE detected_at > NOW() - INTERVAL '24 hours')::int AS last_24h,
+        COUNT(*) FILTER (WHERE detected_at > NOW() - INTERVAL '7 days')::int AS last_7d,
+        COUNT(*) FILTER (WHERE detected_at > NOW() - INTERVAL '30 days')::int AS last_30d
+       FROM events`
+    );
+
+    const row = result.rows[0];
+    const toInt = (v) => parseInt(v, 10) || 0;
+
+    return {
+      total_events: toInt(row.total_events),
+      confirmed_earthquakes: toInt(row.confirmed_earthquakes),
+      pending: toInt(row.pending),
+      false_positives: toInt(row.false_positives),
+      last_24h: toInt(row.last_24h),
+      last_7d: toInt(row.last_7d),
+      last_30d: toInt(row.last_30d)
+    };
+  }
 }
 
 module.exports = EventModel;

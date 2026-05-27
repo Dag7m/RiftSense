@@ -200,18 +200,24 @@ async function getNearbyEvents(req, res) {
  */
 async function getEventStats(req, res) {
   try {
-    const { days } = req.query;
-
-    const stats = await EventModel.getStatistics(parseInt(days) || 30);
-    const total = await EventModel.count();
-    const confirmed = await EventModel.count({ status: 'confirmed' });
+    const days = parseInt(req.query.days, 10) || 30;
+    const summary = await EventModel.getSummaryStats();
+    const periodStats = await EventModel.getStatistics(days);
 
     res.json({
       success: true,
       data: {
-        ...stats,
-        total_all_time: total,
-        confirmed_all_time: confirmed
+        ...summary,
+        // Backward-compatible aliases
+        confirmed: summary.confirmed_earthquakes,
+        confirmed_all_time: summary.confirmed_earthquakes,
+        total_all_time: summary.total_events,
+        confirmed_events: summary.confirmed_earthquakes,
+        pending_events: summary.pending,
+        period_days: days,
+        period_avg_confidence: periodStats.avg_confidence,
+        period_max_magnitude: periodStats.max_magnitude,
+        period_earthquake_count: parseInt(periodStats.earthquake_count, 10) || 0
       }
     });
   } catch (error) {
